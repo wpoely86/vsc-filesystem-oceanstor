@@ -42,7 +42,7 @@ from vsc.utils.patterns import Singleton
 from vsc.utils.rest import Client, RestClient
 from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener
 
-OCEANSTOR_API_URL = 'https://172.19.96.130:8088/api/v2'
+OCEANSTOR_API_PATH = ['api', 'v2']
 
 
 class OceanStorClient(Client):
@@ -125,10 +125,15 @@ class OceanStorRestClient(RestClient):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, username=None, password=None):
+    def __init__(self, url, username=None, password=None):
+        """Initialize REST client and request authentication token"""
         super(OceanStorOperations, self).__init__()
 
         self.log = fancylogger.getLogger()
+
+        # OceanStor API URL
+        self.url = os.path.join(url, *OCEANSTOR_API_PATH)
+        self.log.info("URL of OceanStor server: %s", self.url)
 
         # Open API session with user/password
         if username is None:
@@ -136,8 +141,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if password is None:
             self.log.raiseException("Missing password for OceanStor user: %s" % username, TypeError)
 
-        self.session = OceanStorRestClient(OCEANSTOR_API_URL, username=username, password=password, ssl_verify=False)
-        # get a token for this session
+        self.session = OceanStorRestClient(self.url, username=username, password=password, ssl_verify=False)
+
+        # Get token for this session
         self.session.client.get_x_auth_token(password)
 
     def list_filesystems(self):
