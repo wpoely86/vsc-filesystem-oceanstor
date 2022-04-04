@@ -109,7 +109,8 @@ class OceanStorClient(Client):
         }
 
         status, response = self.post(query_url, body=payload)
-        print(status, response)
+        fancylogger.getLogger().debug("Request for X-Auth-Token got reponse status: %s", status)
+
         token = response['data']['x_auth_token']
         self.x_auth_header = {'X-Auth-Token': token}
         fancylogger.getLogger().info("OceanStor authentication switched to X-Auth-Token for this session")
@@ -143,6 +144,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         List all filesystems.
         """
-        status, response = self.session.file_service.file_systems.get()
-        self.log.info("List of filesystems in OceanStor:")
-        print(json.dumps(response, indent=4))
+        _, response = self.session.file_service.file_systems.get()
+        filesystems = [fs['name'] for fs in response['data']]
+        self.log.info("List of filesystems in OceanStor: %s", ', '.join(filesystems))
+
