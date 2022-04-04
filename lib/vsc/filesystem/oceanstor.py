@@ -111,9 +111,14 @@ class OceanStorClient(Client):
         status, response = self.post(query_url, body=payload)
         fancylogger.getLogger().debug("Request for X-Auth-Token got reponse status: %s", status)
 
-        token = response['data']['x_auth_token']
-        self.x_auth_header = {'X-Auth-Token': token}
-        fancylogger.getLogger().info("OceanStor authentication switched to X-Auth-Token for this session")
+        try:
+            token = response['data']['x_auth_token']
+        except AttributeError as err:
+            errmsg = "X-Auth-Token not found in response from OceanStor"
+            fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
+        else:
+            self.x_auth_header = {'X-Auth-Token': token}
+            fancylogger.getLogger().info("OceanStor authentication switched to X-Auth-Token for this session")
 
         return True
 
