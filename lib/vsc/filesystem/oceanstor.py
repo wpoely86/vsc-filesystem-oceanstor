@@ -327,15 +327,16 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type filesystemnames: report only on given filesystems (if string: 1 device; if None: all known filesystems)
         @type filesetnames: report only on given filesets (if string: 1 filesetname)
 
-        Set self.filesets is dict with
-        where the key is the dtree fileset id, the value is a dict with keys:
+        Set self.filesets as dict with
+        : keys per parent filesystemName and value is dict with
+        :: keys per dtree fileset ID and value is dict with
+        ::: keys returned by OceanStor:
         - group
         - id
         - name
         - owner
         - security_style
         - unix_mode
-        - parent_fs_id
         """
 
         filesystems = self.list_filesystems(update=update)
@@ -357,10 +358,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         if not update and self.filesets:
             # Use cached dtree fileset data
-            dtree_filesets = [dt for dt in self.filesets.values() if dt['parent_fs_id'] in filter_fs_ids]
+            dtree_filesets = {dt: self.filesets[dt] for dt in filter_fs_ids}
             if filesetnames:
-                dtree_filesets = [dt for dt in dtree_filesets if dt['name'] in filesetnames]
-            dtree_filesets = {dt['id']: dt for dt in dtree_filesets}
+                # Filter by name of fileset
+                for fs in dtree_filesets:
+                    dtree_filesets[fs] = {
+                        dt: dtree_filesets[fs][dt]
+                        for dt in dtree_filesets[fs]
+                        if dtree_filesets[fs][dt]['name'] in filesetnames
+                    }
             dbgmsg = "(cached) Dtree filesets in OceanStor filesystems: %s"
             self.log.debug(dbgmsg, ', '.join(dtree_filesets))
         else:
@@ -372,11 +378,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 fs_dtree = {dt['id']: dt for dt in response['data']}
                 self.log.debug("Dtree filesets in OceanStor filesystem ID '%s': %s", fs_id, ', '.join(fs_dtree))
 
-                dtree_extras = {'parent_fs_id': fs_id}
-                for dt in fs_dtree:
-                    fs_dtree[dt].update(dtree_extras)
-
-                dtree_filesets.update(fs_dtree)
+                dtree_filesets[fs_id] = fs_dtree
 
             self.filesets = dtree_filesets
 
