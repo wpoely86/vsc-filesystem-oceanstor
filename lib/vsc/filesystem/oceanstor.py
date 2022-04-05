@@ -285,3 +285,99 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return filesystems
 
+    def filesystem_names_to_ids(self, fs_names, sp_names=None):
+        """
+        Returns list of existing IDs for the provided filesystem names
+        Restrict list to filesystems found in given storage pools names
+
+        @type fs_names: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type sp_ids: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
+        """
+        filesystems = self.list_filesystems()
+
+        if fs_names is None:
+            target_filesystems = filesystems
+        elif not isinstance(fs_names, list):
+            target_filesystems = [fs_names]
+        else:
+            target_filesystems = fs_names
+
+        # Filter by storage pools
+        sp_ids = self.storage_pool_names_to_ids(sp_names)
+
+        try:
+            fs_ids = [
+                str(filesystems[fs]['id'])
+                for fs in target_filesystems
+                if str(filesystems[fs]['storage_pool_id']) in sp_ids
+            ]
+        except KeyError as err:
+            fs_miss = err.args[0]
+            fs_avail = ", ".join(filesystems)
+            errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
+            self.log.raiseException(errmsg, KeyError)
+
+        return fs_ids
+
+    def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
+        """
+        Get all the filesets for one or more specific devices
+
+        @type devices: list of devices (if string: 1 device; if None: all found devices)
+        @type filesystemnames: report only on given filesystems (if string: 1 device; if None: all known filesystems)
+        @type filesetnames: report only on given filesets (if string: 1 filesetname)
+
+        Set self.filesets is dict with
+        where the key is the dtree fileset id, the value is a dict with keys:
+        - group
+        - id
+        - name
+        - owner
+        - security_style
+        - unix_mode
+        - parent_fs_id
+        """
+
+        filesystems = self.list_filesystems(update=update)
+
+        # Filter by filesystem name (in target storage pools)
+        filter_fs_ids = self.filesystem_names_to_ids(filesystemnames, devices)
+        self.log.debug("Filtering dtree filesets in filesystems with IDs: %s", ', '.join(filter_fs_ids))
+
+        # Filter by fileset name
+        query_params = dict()
+        if filesetnames is not None:
+            if isinstance(filesetnames, str):
+                filesetnames = [filesetnames]
+
+            filter_dt_names = [{'name': dt_name} for dt_name in filesetnames]
+            filter_dt_names_json = json.dumps(filter_dt_names, separators=(',', ':'))
+            query_params['filter'] = filter_dt_names_json
+            self.log.debug("added dtree fileset filter by name: %s", ', '.join(filter_dt_names_json))
+
+        if not update and self.filesets:
+            # Use cached dtree fileset data
+            dtree_filesets = [dt for dt in self.filesets.values() if dt['parent_fs_id'] in filter_fs_ids]
+            if filesetnames:
+                dtree_filesets = [dt for dt in dtree_filesets if dt['name'] in filesetnames]
+            dtree_filesets = {dt['id']: dt for dt in dtree_filesets}
+            dbgmsg = "(cached) Dtree filesets in OceanStor filesystems: %s"
+            self.log.debug(dbgmsg, ', '.join(dtree_filesets))
+        else:
+            # Request dtree filesets
+            dtree_filesets = dict()
+            for fs_id in filter_fs_ids:
+                query_params['file_system_id'] = fs_id
+                _, response = self.session.file_service.dtrees.get(**query_params)
+                fs_dtree = {dt['id']: dt for dt in response['data']}
+                self.log.debug("Dtree filesets in OceanStor filesystem ID '%s': %s", fs_id, ', '.join(fs_dtree))
+
+                dtree_extras = {'parent_fs_id': fs_id}
+                for dt in fs_dtree:
+                    fs_dtree[dt].update(dtree_extras)
+
+                dtree_filesets.update(fs_dtree)
+
+            self.filesets = dtree_filesets
+
+        return dtree_filesets
