@@ -82,18 +82,31 @@ class OceanStorClient(Client):
             fancylogger.getLogger().error(errmsg)
             raise
 
-        # Query exit code
+        # Query exit code is found inside the result entry
         try:
             result = response['result']
-        except AttributeError as err:
+        except (KeyError, TypeError) as err:
             errmsg = "OceanStor response lacks resulting status: %s" % response
-            fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
+            fancylogger.getLogger().raiseException(errmsg, exception=err.__class__)
+
+        try:
+            exit_code = result['code']
+        except TypeError as err:
+            # Some queries generate a response with an int result
+            # e.g. GET 'data_service/storagepool'
+            exit_code = result
+            ec_msg = "%s" % result
         else:
-            ecmsg = "OceanStor query returned exit code: %s (%s)" % (result['code'], result['description'])
-            if result['code'] != 0:
-                fancylogger.getLogger().raiseException(ecmsg, exception=RuntimeError)
-            else:
-                fancylogger.getLogger().debug(ecmsg)
+            ec_msg_desc = result['description']
+            if 'suggestion' in result:
+                ec_msg_desc += ' ' + result['suggestion']
+            ec_msg = "%s (%s)" % (result['code'], ec_msg_desc)
+
+        ec_full_msg = "OceanStor query returned exit code: %s" % ec_msg
+        if exit_code != 0:
+            fancylogger.getLogger().raiseException(ec_full_msg, exception=RuntimeError)
+        else:
+            fancylogger.getLogger().debug(ec_full_msg)
 
         return status, response
 
