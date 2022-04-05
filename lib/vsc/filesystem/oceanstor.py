@@ -215,11 +215,73 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.storagepools = res
         return res
 
-    def list_filesystems(self):
+    def storage_pool_names_to_ids(self, sp_names):
         """
-        List all filesystems.
+        Returns list of existing IDs for the provided storage pools names
+
+        @type sp_names: list of devices (if string: 1 device; if None or all: all known devices)
         """
-        _, response = self.session.file_service.file_systems.get()
-        filesystems = [fs['name'] for fs in response['data']]
-        self.log.info("List of filesystems in OceanStor: %s", ', '.join(filesystems))
+        storage_pools = self.list_storage_pools()
+
+        if sp_names == 'all' or sp_names is None:
+            target_storage_pools = storage_pools.keys()
+        elif not isinstance(sp_names, list):
+            target_storage_pools = [sp_names]
+        else:
+            target_storage_pools = sp_names
+
+        try:
+            sp_ids = [str(storage_pools[sp]['storagePoolId']) for sp in target_storage_pools]
+        except KeyError as err:
+            sp_miss = err.args[0]
+            sp_avail = ", ".join(storage_pools)
+            errmsg = "Storage pool '%s' not found in OceanStor. Use any of: %s" % (sp_miss, sp_avail)
+            self.log.raiseException(errmsg, KeyError)
+
+        return sp_ids
+
+    def list_filesystems(self, device='all', update=False):
+        """
+        List all filesystems
+
+        Set self.filesystems to a convenient dict structure of the returned dict
+        where the key is the filesystem name, the value is a dict with keys:
+        - atime_update_mode
+        - dentry_table_type
+        - dir_split_bitwidth
+        - dir_split_policy
+        - id
+        - is_show_snap_dir
+        - name
+        - qos_policy_id
+        - rdc
+        - record_id
+        - root_split_bitwidth
+        - running_status
+        - storage_pool_id
+        """
+
+        storage_pools = self.list_storage_pools(update=update)
+
+        # Filter by requested devices (storage pools in OceanStor)
+        sp_ids = self.storage_pool_names_to_ids(device)
+        filter_sp_ids = [{'storage_pool_id': sp_id} for sp_id in sp_ids]
+        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=(',', ':'))
+        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(sp_ids))
+
+        if not update and self.filesystems:
+            # Use cached filesystem data
+            filesystems = {fs['name']: fs for fs in self.filesystems.values() if str(fs['storage_pool_id']) in sp_ids}
+            dbg_prefix = "(cached) "
+        else:
+            # Request filesystem data
+            _, response = self.session.file_service.file_systems.get(filter=filter_sp_ids_json)
+            filesystems = {fs['name']: fs for fs in response['data']}
+            dbg_prefix = ""
+
+            self.filesystems = filesystems
+
+        self.log.debug(dbg_prefix + "Filesystems in OceanStor: %s", ", ".join(filesystems))
+
+        return filesystems
 
