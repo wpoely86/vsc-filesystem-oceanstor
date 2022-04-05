@@ -149,6 +149,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.log = fancylogger.getLogger()
 
+        self.storagepools = None
+        self.filesystems = None
+        self.filesets = None
+
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor server: %s", self.url)
@@ -163,6 +167,53 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Get token for this session
         self.session.client.get_x_auth_token(password)
+
+    def list_storage_pools(self, update=False):
+        """
+        List all storage pools (equivalent to devices in GPFS)
+
+        Set self.storagepools to a convenient dict structure of the returned dict
+        where the key is the storagePoolName, the value is a dict with keys:
+        - storagePoolId
+        - storagePoolName
+        - totalCapacity
+        - reductionInvolvedCapacity
+        - allocatedCapacity
+        - usedCapacity
+        - freeCapacityRate
+        - usedCapacityRate
+        - status
+        - progress
+        - securityLevel
+        - redundancyPolicy
+        - numParityUnits
+        - numFaultTolerance
+        - compressionAlgorithm
+        - deduplicationSaved
+        - compressionSaved
+        - deduplicationRatio
+        - compressionRatio
+        - dataReductionRatio
+        - encryptType
+        - supportEncryptForMainStorageMedia
+        """
+        if not update and self.storagepools:
+            return self.storagepools
+
+        # Request storage pools
+        _, response = self.session.data_service.storagepool.get()
+        storage_pools = [sp['storagePoolName'] for sp in response['storagePools']]
+        self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
+
+        res = dict()
+        for sp in response['storagePools']:
+            res.update({sp['storagePoolName']: sp})
+
+        if len(res) == 0:
+            self.log.raiseException("No storage pools found in OceanStor", RuntimeError)
+
+        self.storagepools = res
+        return res
 
     def list_filesystems(self):
         """
