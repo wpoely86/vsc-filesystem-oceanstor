@@ -152,9 +152,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.log = fancylogger.getLogger()
 
-        self.storagepools = None
-        self.filesystems = None
-        self.filesets = None
+        self.oceanstor_storagepools = None
+        self.oceanstor_filesystems = None
+        self.oceanstor_filesets = None
 
 
         # OceanStor API URL
@@ -181,7 +181,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         List all storage pools (equivalent to devices in GPFS)
 
-        Set self.storagepools to a convenient dict structure of the returned dict
+        Set self.oceanstor_storagepools to a convenient dict structure of the returned dict
         where the key is the storagePoolName, the value is a dict with keys:
         - storagePoolId
         - storagePoolName
@@ -206,8 +206,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - encryptType
         - supportEncryptForMainStorageMedia
         """
-        if not update and self.storagepools:
-            return self.storagepools
+        if not update and self.oceanstor_storagepools:
+            return self.oceanstor_storagepools
 
         # Request storage pools
         _, response = self.session.data_service.storagepool.get()
@@ -222,7 +222,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         else:
             self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
 
-        self.storagepools = storage_pools
+        self.oceanstor_storagepools = storage_pools
         return storage_pools
 
     def select_storage_pools(self, sp_names, byid=False):
@@ -258,7 +258,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type device: list of names (if string: 1 device, if None or all: all known devices)
 
-        Set self.filesystems to a convenient dict structure of the returned dict
+        Set self.oceanstor_filesystems to a convenient dict structure of the returned dict
         where the key is the filesystem name, the value is a dict with keys:
         - atime_update_mode
         - dentry_table_type
@@ -286,9 +286,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
 
-        if not update and self.filesystems:
+        if not update and self.oceanstor_filesystems:
             # Use cached filesystem data
-            filesystems = {fs['name']: fs for fs in self.filesystems.values() if fs['storage_pool_id'] in sp_ids}
+            filesystems = {fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in sp_ids}
             dbg_prefix = "(cached) "
         else:
             # Request filesystem data
@@ -296,7 +296,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = {fs['name']: fs for fs in response['data']}
             dbg_prefix = ""
 
-            self.filesystems = filesystems
+            self.oceanstor_filesystems = filesystems
 
         self.log.debug(dbg_prefix + "Filesystems in OceanStor: %s", ", ".join(filesystems))
 
@@ -344,7 +344,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
         @type filesetnames: list of fileset names (if string: 1 fileset)
 
-        Set self.filesets as dict with
+        Set self.oceanstor_filesets as dict with
         : keys per parent filesystemName and value is dict with
         :: keys per dtree fileset ID and value is dict with
         ::: keys returned by OceanStor:
@@ -371,10 +371,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
 
-        if not update and self.filesets:
+        if not update and self.oceanstor_filesets:
             # Use cached dtree fileset data and filter by filesystem name
             dbg_prefix = "(cached) "
-            dtree_filesets = {fs: self.filesets[fs] for fs in filter_fs}
+            dtree_filesets = {fs: self.oceanstor_filesets[fs] for fs in filter_fs}
         else:
             # Request dtree filesets
             dbg_prefix = ""
@@ -387,7 +387,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 dtree_filesets[fs_name] = fs_dtree
 
             # Store all dtree filesets in the selected filesystems
-            self.filesets = dtree_filesets
+            self.oceanstor_filesets = dtree_filesets
 
         if filesetnames:
             # Filter by name of fileset
