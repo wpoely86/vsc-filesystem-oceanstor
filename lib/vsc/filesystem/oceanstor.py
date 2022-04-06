@@ -77,8 +77,6 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
-            print(args[0])
-            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -157,7 +155,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # OceanStor API JSON formatting
         # REST API cannot handle white spaces between keys and values
-        self.json_sep = (',', ':') 
+        self.json_sep = (',', ':')
 
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
@@ -358,7 +356,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         filter_fs = self.select_filesystems(filesystemnames, devices)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
-        print("Seeking dtree filesets in filesystems: %s" % ', '.join(filter_fs))
 
         # Filter by fileset name
         if filesetnames is not None:
@@ -366,7 +363,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 filesetnames = [filesetnames]
 
             self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
-            print("Filtering dtree filesets by name: %s" % ', '.join(filesetnames))
 
         if not update and self.filesets:
             # Use cached dtree fileset data and filter by filesystem name
@@ -400,6 +396,5 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         for fs in dtree_filesets:
             dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
             self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
-            print(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s" % (fs, ', '.join(dt_names)))
 
         return dtree_filesets
