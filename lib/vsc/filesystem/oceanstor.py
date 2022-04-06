@@ -113,12 +113,10 @@ class OceanStorClient(Client):
 
         return status, response
 
-    def get_x_auth_token(self, password, username=None):
+    def get_x_auth_token(self, username, password):
         """Request authetication token"""
-        if not username:
-            username = self.username
-
         query_url = os.path.join('aa', 'sessions')
+
         payload = {
             'user_name': username,
             'password': password,
@@ -133,6 +131,7 @@ class OceanStorClient(Client):
             errmsg = "X-Auth-Token not found in response from OceanStor"
             fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
         else:
+            self.username = username
             self.x_auth_header = {'X-Auth-Token': token}
             fancylogger.getLogger().info("OceanStor authentication switched to X-Auth-Token for this session")
 
@@ -171,10 +170,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if password is None:
             self.log.raiseException("Missing password for OceanStor user: %s" % username, TypeError)
 
-        self.session = OceanStorRestClient(self.url, username=username, password=password, ssl_verify=False)
-
-        # Get token for this session
-        self.session.client.get_x_auth_token(password)
+        # Initialize REST client without user/password
+        self.session = OceanStorRestClient(self.url, ssl_verify=False)
+        # Get token for this session with user/password
+        self.session.client.get_x_auth_token(username, password)
 
     @staticmethod
     def json_separators(): 
