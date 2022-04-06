@@ -36,7 +36,7 @@ import json
 import os
 import ssl
 
-from vsc.filesystem.posix import PosixOperations
+from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
 from vsc.utils.rest import Client, RestClient
@@ -145,6 +145,10 @@ class OceanStorRestClient(RestClient):
         self.client = OceanStorClient(*args, **kwargs)
 
 
+class OceanStorOperationError(PosixOperationError):
+    pass
+
+
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
     def __init__(self, url, username=None, password=None):
         """Initialize REST client and request authentication token"""
@@ -218,7 +222,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             storage_pools.update({sp['storagePoolName']: sp})
 
         if len(storage_pools) == 0:
-            self.log.raiseException("No storage pools found in OceanStor", RuntimeError)
+            self.log.raiseException("No storage pools found in OceanStor", OceanStorOperationError)
         else:
             self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
 
