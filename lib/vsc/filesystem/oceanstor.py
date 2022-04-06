@@ -149,8 +149,15 @@ class OceanStorOperationError(PosixOperationError):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, url, username, password):
-        """Initialize REST client and request authentication token"""
+    def __init__(self, api_url, nfs_ips, username, password):
+        """
+        Initialize REST client and request authentication token
+
+        @type api_url: string with URL of REST API, only scheme and FQDM of server is needed
+        @type nfs_ips: list of IPs or FQDM of the NFS servers (if string: 1 IP)
+        @type username: string with username for the REST API
+        @type password: string with plain password for the REST API
+        """
         super(OceanStorOperations, self).__init__()
 
         self.log = fancylogger.getLogger()
@@ -159,13 +166,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_filesystems = None
         self.oceanstor_filesets = None
 
+        if not isinstance(nfs_ips, list):
+            self.nfs_ips = [nfs_ips]
+        else:
+            self.nfs_ips = nfs_ips
 
         # OceanStor API URL
-        self.url = os.path.join(url, *OCEANSTOR_API_PATH)
-        self.log.info("URL of OceanStor server: %s", self.url)
+        self.api_url = os.path.join(api_url, *OCEANSTOR_API_PATH)
+        self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
         # Initialize REST client without user/password
-        self.session = OceanStorRestClient(self.url, ssl_verify=False)
+        self.session = OceanStorRestClient(self.api_url, ssl_verify=False)
         # Get token for this session with user/password
         self.session.client.get_x_auth_token(username, password)
 
