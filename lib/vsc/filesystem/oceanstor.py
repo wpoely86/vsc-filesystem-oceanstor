@@ -204,18 +204,19 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Request storage pools
         _, response = self.session.data_service.storagepool.get()
-        storage_pools = [sp['storagePoolName'] for sp in response['storagePools']]
-        self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
 
-        res = dict()
+        # Organize in a dict by storage pool name
+        storage_pools = dict()
         for sp in response['storagePools']:
-            res.update({sp['storagePoolName']: sp})
+            storage_pools.update({sp['storagePoolName']: sp})
 
-        if len(res) == 0:
+        if len(storage_pools) == 0:
             self.log.raiseException("No storage pools found in OceanStor", RuntimeError)
+        else:
+            self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
 
-        self.storagepools = res
-        return res
+        self.storagepools = storage_pools
+        return storage_pools
 
     def storage_pool_names_to_ids(self, sp_names):
         """
