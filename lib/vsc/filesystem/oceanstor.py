@@ -97,7 +97,7 @@ class OceanStorClient(Client):
             # Some queries generate a response with an int result
             # e.g. GET 'data_service/storagepool'
             exit_code = result
-            ec_msg = "%s" % result
+            ec_msg = str(exit_code)
         else:
             ec_msg_desc = result['description']
             if 'suggestion' in result:
