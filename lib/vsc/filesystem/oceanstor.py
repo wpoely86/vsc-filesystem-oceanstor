@@ -155,6 +155,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.filesystems = None
         self.filesets = None
 
+        # OceanStor API JSON formatting
+        # REST API cannot handle white spaces between keys and values
+        self.json_sep = (',', ':') 
+
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor server: %s", self.url)
@@ -269,7 +273,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Filter by requested devices (storage pools in OceanStor)
         sp_ids = self.storage_pool_names_to_ids(device)
         filter_sp_ids = [{'storage_pool_id': sp_id} for sp_id in sp_ids]
-        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=(',', ':'))
+        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_sep)
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(sp_ids))
 
         if not update and self.filesystems:
