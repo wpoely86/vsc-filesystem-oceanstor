@@ -321,11 +321,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
         """
-        Get all the filesets for one or more specific devices
+        Get all dtree filesets in given devices and given filesystems
+        Filter reported results by name of filesystem
+        Store unfiltered data in self.fileset (all filesets in given devices and given filesystems)
 
         @type devices: list of devices (if string: 1 device; if None: all found devices)
-        @type filesystemnames: report only on given filesystems (if string: 1 device; if None: all known filesystems)
-        @type filesetnames: report only on given filesets (if string: 1 filesetname)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type filesetnames: list of fileset names (if string: 1 fileset)
 
         Set self.filesets as dict with
         : keys per parent filesystemName and value is dict with
@@ -339,58 +341,51 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - unix_mode
         """
 
-        filesystems = self.list_filesystems(update=update)
-
-        query_params = dict()
-
         # Filter by filesystem name (in target storage pools)
         if filesystemnames is None:
+            filesystems = self.list_filesystems(update=update)
             filesystemnames = list(filesystems.keys())
 
         filter_fs = self.select_filesystems(filesystemnames, devices)
-        self.log.debug("Filtering dtree filesets in filesystems: %s", ', '.join(filter_fs))
-        print("Filtering dtree filesets in filesystems: %s" % ', '.join(filter_fs))
+        self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
+        print("Seeking dtree filesets in filesystems: %s" % ', '.join(filter_fs))
 
         # Filter by fileset name
         if filesetnames is not None:
             if isinstance(filesetnames, str):
                 filesetnames = [filesetnames]
 
-            filter_dt = [{'name': dt_name} for dt_name in filesetnames]
-            filter_dt_json = json.dumps(filter_dt, separators=(',', ':'))
-            query_params['filter'] = filter_dt_json
-            self.log.debug("Set dtree fileset filter by name: %s", filter_dt_json)
-            print("Set dtree fileset filter by name: %s" % filter_dt_json)
+            self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
+            print("Filtering dtree filesets by name: %s" % ', '.join(filesetnames))
 
         if not update and self.filesets:
-            # Use cached dtree fileset data
+            # Use cached dtree fileset data and filter by filesystem name
             dbg_prefix = "(cached) "
-
-            # Filter by name of filesystem
             dtree_filesets = {fs: self.filesets[fs] for fs in filter_fs}
-
-            if filesetnames:
-                # Filter by name of fileset
-                for fs in dtree_filesets:
-                    dtree_filesets[fs] = {
-                        dt: dtree_filesets[fs][dt]
-                        for dt in dtree_filesets[fs]
-                        if dtree_filesets[fs][dt]['name'] in filesetnames
-                    }
         else:
             # Request dtree filesets
             dbg_prefix = ""
-
             dtree_filesets = dict()
             for fs_name in filter_fs:
                 # query dtrees in this filesystem
-                query_params['file_system_name'] = fs_name
-                _, response = self.session.file_service.dtrees.get(**query_params)
+                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
                 fs_dtree = {dt['id']: dt for dt in response['data']}
                 # organize dtree filesets by filesystem name
                 dtree_filesets[fs_name] = fs_dtree
 
+            # Store all dtree filesets in the selected filesystems
             self.filesets = dtree_filesets
+
+        if filesetnames:
+            # Filter by name of fileset
+            # REST API does not accept multiple names in the filter of 'file_service/dtrees'
+            # Therefore, we request all entries and filter a posteriori
+            for fs in dtree_filesets:
+                dtree_filesets[fs] = {
+                    dt: dtree_filesets[fs][dt]
+                    for dt in dtree_filesets[fs]
+                    if dtree_filesets[fs][dt]['name'] in filesetnames
+                }
 
         for fs in dtree_filesets:
             dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
