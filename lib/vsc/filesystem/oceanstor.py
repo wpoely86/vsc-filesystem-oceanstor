@@ -77,6 +77,8 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
+            print(args[0])
+            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -285,39 +287,37 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return filesystems
 
-    def filesystem_names_to_ids(self, fs_names, sp_names=None):
+    def select_filesystems(self, filesystemnames, devices=None, byid=False):
         """
-        Returns list of existing IDs for the provided filesystem names
+        Return list of existing filesytem with the provided filesystem names
         Restrict list to filesystems found in given storage pools names
 
-        @type fs_names: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
-        @type sp_ids: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
+        @type byid: boolean (if True: return list of filesystem IDs)
         """
-        filesystems = self.list_filesystems()
 
-        if fs_names is None:
-            target_filesystems = filesystems
-        elif not isinstance(fs_names, list):
-            target_filesystems = [fs_names]
+        if not isinstance(filesystemnames, list):
+            target_filesystems = [filesystemnames]
         else:
-            target_filesystems = fs_names
+            target_filesystems = filesystemnames
 
         # Filter by storage pools
-        sp_ids = self.storage_pool_names_to_ids(sp_names)
+        filesystems = self.list_filesystems(device=devices)
 
         try:
-            fs_ids = [
-                str(filesystems[fs]['id'])
-                for fs in target_filesystems
-                if str(filesystems[fs]['storage_pool_id']) in sp_ids
-            ]
+            fs_select = [filesystems[fs]['name'] for fs in target_filesystems]
         except KeyError as err:
             fs_miss = err.args[0]
             fs_avail = ", ".join(filesystems)
             errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
             self.log.raiseException(errmsg, KeyError)
 
-        return fs_ids
+        # Convert names to IDs
+        if byid:
+            fs_select = [filesystems[fs]['id'] for fs in fs_select]
+
+        return fs_select
 
     def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
         """
@@ -341,24 +341,34 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         filesystems = self.list_filesystems(update=update)
 
+        query_params = dict()
+
         # Filter by filesystem name (in target storage pools)
-        filter_fs_ids = self.filesystem_names_to_ids(filesystemnames, devices)
-        self.log.debug("Filtering dtree filesets in filesystems with IDs: %s", ', '.join(filter_fs_ids))
+        if filesystemnames is None:
+            filesystemnames = list(filesystems.keys())
+
+        filter_fs = self.select_filesystems(filesystemnames, devices)
+        self.log.debug("Filtering dtree filesets in filesystems: %s", ', '.join(filter_fs))
+        print("Filtering dtree filesets in filesystems: %s" % ', '.join(filter_fs))
 
         # Filter by fileset name
-        query_params = dict()
         if filesetnames is not None:
             if isinstance(filesetnames, str):
                 filesetnames = [filesetnames]
 
-            filter_dt_names = [{'name': dt_name} for dt_name in filesetnames]
-            filter_dt_names_json = json.dumps(filter_dt_names, separators=(',', ':'))
-            query_params['filter'] = filter_dt_names_json
-            self.log.debug("added dtree fileset filter by name: %s", ', '.join(filter_dt_names_json))
+            filter_dt = [{'name': dt_name} for dt_name in filesetnames]
+            filter_dt_json = json.dumps(filter_dt, separators=(',', ':'))
+            query_params['filter'] = filter_dt_json
+            self.log.debug("Set dtree fileset filter by name: %s", filter_dt_json)
+            print("Set dtree fileset filter by name: %s" % filter_dt_json)
 
         if not update and self.filesets:
             # Use cached dtree fileset data
-            dtree_filesets = {dt: self.filesets[dt] for dt in filter_fs_ids}
+            dbg_prefix = "(cached) "
+
+            # Filter by name of filesystem
+            dtree_filesets = {fs: self.filesets[fs] for fs in filter_fs}
+
             if filesetnames:
                 # Filter by name of fileset
                 for fs in dtree_filesets:
@@ -367,19 +377,24 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         for dt in dtree_filesets[fs]
                         if dtree_filesets[fs][dt]['name'] in filesetnames
                     }
-            dbgmsg = "(cached) Dtree filesets in OceanStor filesystems: %s"
-            self.log.debug(dbgmsg, ', '.join(dtree_filesets))
         else:
             # Request dtree filesets
+            dbg_prefix = ""
+
             dtree_filesets = dict()
-            for fs_id in filter_fs_ids:
-                query_params['file_system_id'] = fs_id
+            for fs_name in filter_fs:
+                # query dtrees in this filesystem
+                query_params['file_system_name'] = fs_name
                 _, response = self.session.file_service.dtrees.get(**query_params)
                 fs_dtree = {dt['id']: dt for dt in response['data']}
-                self.log.debug("Dtree filesets in OceanStor filesystem ID '%s': %s", fs_id, ', '.join(fs_dtree))
-
-                dtree_filesets[fs_id] = fs_dtree
+                # organize dtree filesets by filesystem name
+                dtree_filesets[fs_name] = fs_dtree
 
             self.filesets = dtree_filesets
+
+        for fs in dtree_filesets:
+            dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
+            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
+            print(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s" % (fs, ', '.join(dt_names)))
 
         return dtree_filesets
