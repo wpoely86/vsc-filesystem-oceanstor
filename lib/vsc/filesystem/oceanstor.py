@@ -160,7 +160,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         super(OceanStorOperations, self).__init__()
 
-        self.log = fancylogger.getLogger()
+        self.supportedfilesystems = ['nfs']
 
         self.oceanstor_storagepools = None
         self.oceanstor_filesystems = None
