@@ -149,7 +149,7 @@ class OceanStorOperationError(PosixOperationError):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, url, username=None, password=None):
+    def __init__(self, url, username, password):
         """Initialize REST client and request authentication token"""
         super(OceanStorOperations, self).__init__()
 
@@ -163,12 +163,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor server: %s", self.url)
-
-        # Open API session with user/password
-        if username is None:
-            self.log.raiseException("Missing OceanStor username", TypeError)
-        if password is None:
-            self.log.raiseException("Missing password for OceanStor user: %s" % username, TypeError)
 
         # Initialize REST client without user/password
         self.session = OceanStorRestClient(self.url, ssl_verify=False)
