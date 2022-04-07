@@ -35,7 +35,7 @@ import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ad
 
 PACKAGE = {
-    'version': '0.2.0',
+    'version': '0.3.0',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
