@@ -349,7 +349,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Get all dtree filesets in given devices and given filesystems
         Filter reported results by name of filesystem
-        Store unfiltered data in self.fileset (all filesets in given devices and given filesystems)
+        Store unfiltered data in self.oceanstor_filesets (all filesets in given devices and given filesystems)
 
         @type devices: list of devices (if string: 1 device; if None: all found devices)
         @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
@@ -457,13 +457,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         - The name of the dtree fileset and the folder where it is mounted always share the same name.
         - Dtree filesets cannot be nested (parent_fileset_name is ignored)
-        - Dtree filesets can be created at specific path inside the NFS mount,
-          but this information cannot be retrieved back from the OceanStor API
-          (list_filesets()). Therefore, all fileset in a common filesystem must
-          have unique names.
+        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem),
+          but this information cannot be retrieved back from the OceanStor API (list_filesets()).
+          Therefore, all filesets in a common filesystem must have unique names.
 
-        @type new_fileset_path: string representing the full path in the local system of the new fileset
-        @type fileset_name: string representing the name of the new fileset
+        @type new_fileset_path: string with the full path in the local system of the new fileset
+        @type fileset_name: string with the name of the new fileset
                             (if not None, fileset_name is appended to new_fileset_path)
         """
         # Unsupported features
@@ -471,8 +470,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         del afm
         del inodes_max
         del inodes_prealloc
-
-        self.list_filesets()  # make sure fileset data is present (but do not update)
 
         dt_fullpath = self._sanity_check(new_fileset_path)
 
@@ -494,28 +491,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
             self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
 
-        # Check if OceanStor name constrains for dtrees are met
-        unallowed_name_chars = re.compile(r'[^a-zA-Z0-9._]')
-        if unallowed_name_chars.search(fileset_name):
-            errmsg = "Name of new fileset contains invalid characters: %s"
-            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
-        elif len(fileset_name) > 255:
-            errmsg = "Name of new fileset is too long (max. 255 characters): %s"
-            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
-
         # Get local mounted filesystem and remote one in OceanStor
         local_fs = self.what_filesystem(dt_parentdir)
         local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
         oceanstor_fs_name = local_fs[self.localfilesystemnaming.index('oceanstorfs')]
-
-        # Check if a dtree fileset with new name alreay exists
-        for oceanstor_dt in self.oceanstor_filesets[oceanstor_fs_name].values():
-            existing_name = oceanstor_dt.get('name', None)
-            if existing_name == fileset_name:
-                errmsg = "Found existing dtree fileset '%s' with same name as new one '%s'"
-                self.log.raiseException(errmsg % (existing_name, fileset_name), OceanStorOperationError)
-
-        self.log.debug("Accepted name of new fileset in '%s': %s", dt_fullpath, fileset_name)
 
         # Relative path of parent directory holding the fileset
         dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
@@ -528,11 +507,57 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         oceanstor_parentdir = '/' + dt_parentdir_relative
         self.log.debug("Creating new dtree fileset with parent directory: '%s'", oceanstor_parentdir)
 
+        # Send API request to create the new dtree fileset
+        self.make_fileset_api(fileset_name, oceanstor_fs_name, parent_dir=oceanstor_parentdir)
+
+    def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
+        """
+        Create new dtree fileset in given filesystem of OceanStor
+        
+        - Dtree filesets cannot be nested
+        - Dtree filesets can be created at specific path inside the filesystem,
+          but this information cannot be retrieved back from the OceanStor API
+          (list_filesets()). Therefore, all filesets in a common filesystem must
+          have unique names.
+
+        @type fileset_name: string with the name of the new fileset
+        @type filesystem_name: string with the name of an existing filesystem
+        @type filesystem_name: string with the path of parent directory of new fileset
+                               (path relative to root of filesystem)
+        """
+        self.list_filesets()  # make sure fileset data is present (but do not update)
+
+        # Check filesystem presence
+        if filesystem_name not in self.oceanstor_filesets:
+            errmsg = "Requested filesystem '%s' for new dtree fileset '%s' not found."
+            self.log.raiseException(errmsg % (filesystem_name, fileset_name), OceanStorOperationError)
+
+        # Check if a dtree fileset with this name alreay exists
+        for dt in self.oceanstor_filesets[filesystem_name].values():
+            if dt['name'] == fileset_name:
+                errmsg = "Found existing dtree fileset '%s' with same name as new one '%s'"
+                self.log.raiseException(errmsg % (dt['name'], fileset_name), OceanStorOperationError)
+
+        # Check if OceanStor name constrains for dtrees are met
+        unallowed_name_chars = re.compile(r'[^a-zA-Z0-9._]')
+        if unallowed_name_chars.search(fileset_name):
+            errmsg = "Name of new dtree fileset contains invalid characters: %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+        elif len(fileset_name) > 255:
+            errmsg = "Name of new dtree fileset is too long (max. 255 characters): %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+        else:
+            self.log.debug("Validated name of new dtree fileset: %s", fileset_name)
+
+        # Ensure absolute path for parent directory
+        if not os.path.isabs(parent_dir):
+            parent_dir = '/' + parent_dir
+
         # Create dtree fileset
         new_dtree_params = {
             "name": fileset_name,
-            "file_system_name": oceanstor_fs_name,
-            "parent_dir": oceanstor_parentdir,
+            "file_system_name": filesystem_name,
+            "parent_dir": parent_dir,
         }
         self.log.debug("Creating dtree with: %s", new_dtree_params)
 
