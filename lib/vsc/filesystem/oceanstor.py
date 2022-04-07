@@ -229,7 +229,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Return list of existing storage pools with the provided storage pool names
 
-        @type sp_names: list of names (if string: 1 device; if None or all: all known devices)
+        @type sp_names: list of names (if string: 1 device)
         """
         storage_pools = self.list_storage_pools()
 
@@ -255,6 +255,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
     def list_filesystems(self, device=None, update=False):
         """
         List all filesystems
+
+        @type device: list of names (if string: 1 device, if None or all: all known devices)
 
         Set self.filesystems to a convenient dict structure of the returned dict
         where the key is the filesystem name, the value is a dict with keys:
@@ -305,7 +307,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Return list of existing filesytem with the provided filesystem names
         Restrict list to filesystems found in given storage pools names
 
-        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem)
         @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
         @type byid: boolean (if True: return list of filesystem IDs)
         """
