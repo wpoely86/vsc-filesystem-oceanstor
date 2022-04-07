@@ -44,6 +44,9 @@ from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener
 
 OCEANSTOR_API_PATH = ['api', 'v2']
 
+# REST API cannot handle white spaces between keys and values
+OCEANSTOR_JSON_SEP = (',', ':')
+
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -153,9 +156,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.filesystems = None
         self.filesets = None
 
-        # OceanStor API JSON formatting
-        # REST API cannot handle white spaces between keys and values
-        self.json_sep = (',', ':')
 
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
@@ -171,6 +171,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Get token for this session
         self.session.client.get_x_auth_token(password)
+
+    @staticmethod
+    def json_separators(): 
+        """JSON formatting for OceanStor API"""
+        return OCEANSTOR_JSON_SEP
 
     def list_storage_pools(self, update=False):
         """
@@ -276,7 +281,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         sp_ids = self.select_storage_pools(device, byid=True)
         filter_sp_ids = [{'storage_pool_id': str(sp_id)} for sp_id in sp_ids]
-        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_sep)
+        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
 
         if not update and self.filesystems:
