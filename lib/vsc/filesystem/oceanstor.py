@@ -34,6 +34,7 @@ from future.utils import with_metaclass
 
 import json
 import os
+import re
 import ssl
 
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
@@ -449,3 +450,94 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # Add filesystem name in OceanStor to all mounts (even if None)
             fs.append(fs_oceanstor_name)
 
+    def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
+                     inodes_max=None, inodes_prealloc=None):
+        """
+        Create a new fileset in a NFS mounted filesystem from OceanStor
+
+        - The name of the dtree fileset and the folder where it is mounted always share the same name.
+        - Dtree filesets cannot be nested (parent_fileset_name is ignored)
+        - Dtree filesets can be created at specific path inside the NFS mount,
+          but this information cannot be retrieved back from the OceanStor API
+          (list_filesets()). Therefore, all fileset in a common filesystem must
+          have unique names.
+
+        @type new_fileset_path: string representing the full path in the local system of the new fileset
+        @type fileset_name: string representing the name of the new fileset
+                            (if not None, fileset_name is appended to new_fileset_path)
+        """
+        # Unsupported features
+        del parent_fileset_name
+        del afm
+        del inodes_max
+        del inodes_prealloc
+
+        self.list_filesets()  # make sure fileset data is present (but do not update)
+
+        dt_fullpath = self._sanity_check(new_fileset_path)
+
+        if fileset_name is None:
+            # Use name of last folder as name of dtree fileset in OceanStor
+            fileset_name = os.path.basename(dt_fullpath)
+        else:
+            # Append the fileset name to the given path
+            dt_fullpath = os.path.join(dt_fullpath, fileset_name)
+            dt_fullpath = self._sanity_check(dt_fullpath)
+
+        # Check existence of path in local filesystem
+        if self.exists(dt_fullpath):
+            errmsg = "Path of new fileset '%s' is validated as '%s' but it already exists."
+            self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
+
+        dt_parentdir = os.path.dirname(dt_fullpath)
+        if not self.exists(dt_parentdir):
+            errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
+            self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
+
+        # Check if OceanStor name constrains for dtrees are met
+        unallowed_name_chars = re.compile(r'[^a-zA-Z0-9._]')
+        if unallowed_name_chars.search(fileset_name):
+            errmsg = "Name of new fileset contains invalid characters: %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+        elif len(fileset_name) > 255:
+            errmsg = "Name of new fileset is too long (max. 255 characters): %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+
+        # Get local mounted filesystem and remote one in OceanStor
+        local_fs = self.what_filesystem(dt_parentdir)
+        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
+        oceanstor_fs_name = local_fs[self.localfilesystemnaming.index('oceanstorfs')]
+
+        # Check if a dtree fileset with new name alreay exists
+        for oceanstor_dt in self.oceanstor_filesets[oceanstor_fs_name].values():
+            existing_name = oceanstor_dt.get('name', None)
+            if existing_name == fileset_name:
+                errmsg = "Found existing dtree fileset '%s' with same name as new one '%s'"
+                self.log.raiseException(errmsg % (existing_name, fileset_name), OceanStorOperationError)
+
+        self.log.debug("Accepted name of new fileset in '%s': %s", dt_fullpath, fileset_name)
+
+        # Relative path of parent directory holding the fileset
+        dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
+        if dt_parentdir_relative.startswith('..'):
+            errmsg = "Parent directory of new fileset cannot be outside of filesystem boundaries. %s got: '%s'"
+            self.log.raiseException(errmsg % (fileset_name, dt_parentdir_relative), OceanStorOperationError)
+        elif dt_parentdir_relative == '.':
+            dt_parentdir_relative = ''
+
+        oceanstor_parentdir = '/' + dt_parentdir_relative
+        self.log.debug("Creating new dtree fileset with parent directory: '%s'", oceanstor_parentdir)
+
+        # Create dtree fileset
+        new_dtree_params = {
+            "name": fileset_name,
+            "file_system_name": oceanstor_fs_name,
+            "parent_dir": oceanstor_parentdir,
+        }
+        self.log.debug("Creating dtree with: %s", new_dtree_params)
+
+        _, result = self.session.file_service.dtrees.post(body=new_dtree_params)
+        self.log.info("New dtree fileset created succesfully: %s", result)
+
+        # Rescan all filesets and force update the info
+        self.list_filesets(update=True)
