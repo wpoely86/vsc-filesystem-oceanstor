@@ -44,6 +44,9 @@ from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener
 
 OCEANSTOR_API_PATH = ['api', 'v2']
 
+# REST API cannot handle white spaces between keys and values
+OCEANSTOR_JSON_SEP = (',', ':')
+
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -82,18 +85,31 @@ class OceanStorClient(Client):
             fancylogger.getLogger().error(errmsg)
             raise
 
-        # Query exit code
+        # Query exit code is found inside the result entry
         try:
             result = response['result']
-        except AttributeError as err:
+        except (KeyError, TypeError) as err:
             errmsg = "OceanStor response lacks resulting status: %s" % response
-            fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
+            fancylogger.getLogger().raiseException(errmsg, exception=err.__class__)
+
+        try:
+            exit_code = result['code']
+        except TypeError as err:
+            # Some queries generate a response with an int result
+            # e.g. GET 'data_service/storagepool'
+            exit_code = result
+            ec_msg = str(exit_code)
         else:
-            ecmsg = "OceanStor query returned exit code: %s (%s)" % (result['code'], result['description'])
-            if result['code'] != 0:
-                fancylogger.getLogger().raiseException(ecmsg, exception=RuntimeError)
-            else:
-                fancylogger.getLogger().debug(ecmsg)
+            ec_msg_desc = result['description']
+            if 'suggestion' in result:
+                ec_msg_desc += ' ' + result['suggestion']
+            ec_msg = "%s (%s)" % (result['code'], ec_msg_desc)
+
+        ec_full_msg = "OceanStor query returned exit code: %s" % ec_msg
+        if exit_code != 0:
+            fancylogger.getLogger().raiseException(ec_full_msg, exception=RuntimeError)
+        else:
+            fancylogger.getLogger().debug(ec_full_msg)
 
         return status, response
 
@@ -136,6 +152,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.log = fancylogger.getLogger()
 
+        self.storagepools = None
+        self.filesystems = None
+        self.filesets = None
+
+
         # OceanStor API URL
         self.url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor server: %s", self.url)
@@ -151,11 +172,236 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Get token for this session
         self.session.client.get_x_auth_token(password)
 
-    def list_filesystems(self):
-        """
-        List all filesystems.
-        """
-        _, response = self.session.file_service.file_systems.get()
-        filesystems = [fs['name'] for fs in response['data']]
-        self.log.info("List of filesystems in OceanStor: %s", ', '.join(filesystems))
+    @staticmethod
+    def json_separators(): 
+        """JSON formatting for OceanStor API"""
+        return OCEANSTOR_JSON_SEP
 
+    def list_storage_pools(self, update=False):
+        """
+        List all storage pools (equivalent to devices in GPFS)
+
+        Set self.storagepools to a convenient dict structure of the returned dict
+        where the key is the storagePoolName, the value is a dict with keys:
+        - storagePoolId
+        - storagePoolName
+        - totalCapacity
+        - reductionInvolvedCapacity
+        - allocatedCapacity
+        - usedCapacity
+        - freeCapacityRate
+        - usedCapacityRate
+        - status
+        - progress
+        - securityLevel
+        - redundancyPolicy
+        - numParityUnits
+        - numFaultTolerance
+        - compressionAlgorithm
+        - deduplicationSaved
+        - compressionSaved
+        - deduplicationRatio
+        - compressionRatio
+        - dataReductionRatio
+        - encryptType
+        - supportEncryptForMainStorageMedia
+        """
+        if not update and self.storagepools:
+            return self.storagepools
+
+        # Request storage pools
+        _, response = self.session.data_service.storagepool.get()
+
+        # Organize in a dict by storage pool name
+        storage_pools = dict()
+        for sp in response['storagePools']:
+            storage_pools.update({sp['storagePoolName']: sp})
+
+        if len(storage_pools) == 0:
+            self.log.raiseException("No storage pools found in OceanStor", RuntimeError)
+        else:
+            self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
+
+        self.storagepools = storage_pools
+        return storage_pools
+
+    def select_storage_pools(self, sp_names, byid=False):
+        """
+        Return list of existing storage pools with the provided storage pool names
+
+        @type sp_names: list of names (if string: 1 device)
+        """
+        storage_pools = self.list_storage_pools()
+
+        if not isinstance(sp_names, list):
+            target_storage_pools = [sp_names]
+        else:
+            target_storage_pools = sp_names
+
+        try:
+            sp_select = [storage_pools[sp]['storagePoolName'] for sp in target_storage_pools]
+        except KeyError as err:
+            sp_miss = err.args[0]
+            sp_avail = ", ".join(storage_pools)
+            errmsg = "Storage pool '%s' not found in OceanStor. Use any of: %s" % (sp_miss, sp_avail)
+            self.log.raiseException(errmsg, KeyError)
+
+        # Convert names to IDs
+        if byid:
+            sp_select = [storage_pools[sp]['storagePoolId'] for sp in sp_select]
+
+        return sp_select
+
+    def list_filesystems(self, device=None, update=False):
+        """
+        List all filesystems
+
+        @type device: list of names (if string: 1 device, if None or all: all known devices)
+
+        Set self.filesystems to a convenient dict structure of the returned dict
+        where the key is the filesystem name, the value is a dict with keys:
+        - atime_update_mode
+        - dentry_table_type
+        - dir_split_bitwidth
+        - dir_split_policy
+        - id
+        - is_show_snap_dir
+        - name
+        - qos_policy_id
+        - rdc
+        - record_id
+        - root_split_bitwidth
+        - running_status
+        - storage_pool_id
+        """
+
+        # Filter by requested devices (storage pools in OceanStor)
+        # Support special case 'all' for downstream compatibility
+        if device is None or device == 'all':
+            storage_pools = self.list_storage_pools(update=update)
+            device = list(storage_pools.keys())
+
+        sp_ids = self.select_storage_pools(device, byid=True)
+        filter_sp_ids = [{'storage_pool_id': str(sp_id)} for sp_id in sp_ids]
+        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
+        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
+
+        if not update and self.filesystems:
+            # Use cached filesystem data
+            filesystems = {fs['name']: fs for fs in self.filesystems.values() if fs['storage_pool_id'] in sp_ids}
+            dbg_prefix = "(cached) "
+        else:
+            # Request filesystem data
+            _, response = self.session.file_service.file_systems.get(filter=filter_sp_ids_json)
+            filesystems = {fs['name']: fs for fs in response['data']}
+            dbg_prefix = ""
+
+            self.filesystems = filesystems
+
+        self.log.debug(dbg_prefix + "Filesystems in OceanStor: %s", ", ".join(filesystems))
+
+        return filesystems
+
+    def select_filesystems(self, filesystemnames, devices=None, byid=False):
+        """
+        Return list of existing filesytem with the provided filesystem names
+        Restrict list to filesystems found in given storage pools names
+
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem)
+        @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
+        @type byid: boolean (if True: return list of filesystem IDs)
+        """
+
+        if not isinstance(filesystemnames, list):
+            target_filesystems = [filesystemnames]
+        else:
+            target_filesystems = filesystemnames
+
+        # Filter by storage pools
+        filesystems = self.list_filesystems(device=devices)
+
+        try:
+            fs_select = [filesystems[fs]['name'] for fs in target_filesystems]
+        except KeyError as err:
+            fs_miss = err.args[0]
+            fs_avail = ", ".join(filesystems)
+            errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
+            self.log.raiseException(errmsg, KeyError)
+
+        # Convert names to IDs
+        if byid:
+            fs_select = [filesystems[fs]['id'] for fs in fs_select]
+
+        return fs_select
+
+    def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
+        """
+        Get all dtree filesets in given devices and given filesystems
+        Filter reported results by name of filesystem
+        Store unfiltered data in self.fileset (all filesets in given devices and given filesystems)
+
+        @type devices: list of devices (if string: 1 device; if None: all found devices)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type filesetnames: list of fileset names (if string: 1 fileset)
+
+        Set self.filesets as dict with
+        : keys per parent filesystemName and value is dict with
+        :: keys per dtree fileset ID and value is dict with
+        ::: keys returned by OceanStor:
+        - group
+        - id
+        - name
+        - owner
+        - security_style
+        - unix_mode
+        """
+
+        # Filter by filesystem name (in target storage pools)
+        if filesystemnames is None:
+            filesystems = self.list_filesystems(update=update)
+            filesystemnames = list(filesystems.keys())
+
+        filter_fs = self.select_filesystems(filesystemnames, devices)
+        self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
+
+        # Filter by fileset name
+        if filesetnames is not None:
+            if isinstance(filesetnames, str):
+                filesetnames = [filesetnames]
+
+            self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
+
+        if not update and self.filesets:
+            # Use cached dtree fileset data and filter by filesystem name
+            dbg_prefix = "(cached) "
+            dtree_filesets = {fs: self.filesets[fs] for fs in filter_fs}
+        else:
+            # Request dtree filesets
+            dbg_prefix = ""
+            dtree_filesets = dict()
+            for fs_name in filter_fs:
+                # query dtrees in this filesystem
+                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
+                fs_dtree = {dt['id']: dt for dt in response['data']}
+                # organize dtree filesets by filesystem name
+                dtree_filesets[fs_name] = fs_dtree
+
+            # Store all dtree filesets in the selected filesystems
+            self.filesets = dtree_filesets
+
+        if filesetnames:
+            # Filter by name of fileset
+            # REST API does not accept multiple names in the filter of 'file_service/dtrees'
+            # Therefore, we request all entries and filter a posteriori
+            for fs in dtree_filesets:
+                dtree_filesets[fs] = {
+                    dt: dtree_filesets[fs][dt]
+                    for dt in dtree_filesets[fs]
+                    if dtree_filesets[fs][dt]['name'] in filesetnames
+                }
+
+        for fs in dtree_filesets:
+            dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
+            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
+
+        return dtree_filesets
