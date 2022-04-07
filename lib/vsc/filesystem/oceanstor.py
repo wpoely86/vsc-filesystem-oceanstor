@@ -418,46 +418,34 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def _local_filesystems(self):
         """
-        Identify local NFS filesystems from OceanStore
-        Set storage pool attribute of local filesystems
+        Identify local NFS filesystems from OceanStor
+        Set filesystem name in OceanStor as attribute of local filesystems
         """
         super(OceanStorOperations, self)._local_filesystems()
 
         if self.oceanstor_filesystems is None:
             self.list_filesystems()
 
-        # Add storage pool to list of attributes of local filesystems
-        self.localfilesystemnaming.append('storagepool')
+        # Add filesystem name in OceanStor to list of attributes of local filesystems
+        self.localfilesystemnaming.append('oceanstorfs')
 
         for fs in self.localfilesystems:
-            fs_storagepool_name = None
+            fs_oceanstor_name = None
 
             if fs[self.localfilesystemnaming.index('type')] in self.supportedfilesystems:
                 # Check NFS mount server and filesystem name
                 mount_device = fs[self.localfilesystemnaming.index('device')]
                 mount_ip, fs_path = mount_device.split(':', 1)
 
-                # Determine storage pool if filesystem is a known filesystem from OceanStor
+                # Determine if filesystem is a known filesystem in OceanStor
                 if mount_ip in self.nfs_ips:
                     fs_name = os.path.basename(fs_path)
                     try:
-                        fs_storagepool_id = self.oceanstor_filesystems[fs_name]['storage_pool_id']
+                        fs_oceanstor_name = self.oceanstor_filesystems[fs_name]['name']
                     except KeyError as err:
-                        errmsg = "NFS mount '%s' served from OceanStor has unkown filesystem '%s' to the REST API"
+                        errmsg = "NFS mount '%s' served from OceanStor has an unkown filesystem '%s' to the REST API"
                         self.log.raiseException(errmsg % (mount_device, fs_name), OceanStorOperationError)
-                    else:
-                        fs_storagepool_name = [
-                            sp
-                            for sp in self.oceanstor_storagepools
-                            if self.oceanstor_storagepools[sp]['storagePoolId'] == fs_storagepool_id
-                        ]
 
-                    if len(fs_storagepool_name) == 1:
-                        fs_storagepool_name = fs_storagepool_name[0]
-                    else:
-                        errmsg = "NFS mount '%s' served from OceanStor not found in any storage pool"
-                        self.log.raiseException(errmsg % mount_device, OceanStorOperationError)
-
-            # Add storage pool for all mounts (even if None)
-            fs.append(fs_storagepool_name)
+            # Add filesystem name in OceanStor to all mounts (even if None)
+            fs.append(fs_oceanstor_name)
 
