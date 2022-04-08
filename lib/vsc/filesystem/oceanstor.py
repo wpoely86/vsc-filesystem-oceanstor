@@ -81,6 +81,8 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
+            print(args[0])
+            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -522,8 +524,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type fileset_name: string with the name of the new fileset
         @type filesystem_name: string with the name of an existing filesystem
-        @type filesystem_name: string with the path of parent directory of new fileset
-                               (path relative to root of filesystem)
+        @type parent_dir: string with path of parent directory of new fileset
+                          (path relative to root of filesystem)
         """
         self.list_filesets()  # make sure fileset data is present (but do not update)
 
