@@ -167,6 +167,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_filesystems = None
         self.oceanstor_filesets = None
         self.oceanstor_nfsshares = None
+        self.oceanstor_nfsclients = None
 
         self.account = account
 
@@ -474,6 +475,75 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_nfsshares.update(nfs_shares)
 
         return nfs_shares
+
+    def list_nfs_clients(self, nfs_share_id=None, filesystemnames=None, update=False):
+        """
+        Get NFS clients for all or certain NFS shares
+        Filter reported results by ID of NFS shares and/or name of filesystem
+
+        @type nfs_share_id: list of integers with IDs of NFS shares (if int: 1 NFS share; if None: all NFS shares)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+
+        Set self.oceanstor_nfsclients as dict with
+        : keys per NFS share ID and value is dict with
+        :: keys returned by OceanStor:
+        - access_name
+        - access_value
+        - account_id
+        - account_name
+        - all_squash
+        - id
+        - root_squash
+        - secure
+        - security_type
+        - share_id
+        - sync
+        - type
+        """
+        if self.oceanstor_nfsclients is None:
+            self.oceanstor_nfsclients = dict()
+
+        # NFS shares in given filesystems: 2 level dict {filesystem: {nfs_share: }}
+        nfs_shares = self.list_nfs_shares(filesystemnames=filesystemnames, update=update)
+        nfs_id_pool = [ns for fs in nfs_shares.values() for ns in fs]
+
+        # Filter by NFS share ID
+        if nfs_share_id is None:
+            filter_ns = nfs_id_pool
+        else:
+            if not isinstance(nfs_share_id, list):
+                nfs_share_id = [nfs_share_id]
+            filter_ns = [str(ns) for ns in nfs_share_id if str(ns) in nfs_id_pool]
+
+        self.log.debug("Seeking NFS clients for NFS shares: %s", ', '.join(str(i) for i in filter_ns))
+
+        nfs_clients = dict()
+        for ns_id in filter_ns:
+            if not update and ns_id in self.oceanstor_nfsclients:
+                # Use cached data
+                dbg_prefix = "(cached) "
+                nfs_clients[ns_id] = self.oceanstor_nfsclients[ns_id]
+            else:
+                # Request NFS clients for this share
+                dbg_prefix = ""
+                filter_json = [{'share_id': str(ns_id)}]
+                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                query_params = {
+                    'account_name': self.account,
+                    'filter': filter_json,
+                }
+                _, response = self.session.nas_protocol.nfs_share_auth_client_list.get(**query_params)
+                share_client = {nc['id']: nc for nc in response['data']}
+                nfs_clients[ns_id] = share_client
+
+            nc_access_name = ["'%s'" % nc['access_name'] for nc in nfs_clients[ns_id].values()]
+            dbgmsg = "NFS clients for OceanStor NFS share ID '%s': %s"
+            self.log.debug(dbg_prefix + dbgmsg, ns_id, ', '.join(nc_access_name))
+
+        # Store all NFS shares in selected filesystems
+        self.oceanstor_nfsclients.update(nfs_clients)
+
+        return nfs_clients
 
     def _local_filesystems(self):
         """
