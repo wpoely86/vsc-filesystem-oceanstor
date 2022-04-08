@@ -81,8 +81,6 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
-            print(args[0])
-            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -192,8 +190,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         List all storage pools (equivalent to devices in GPFS)
 
-        Set self.oceanstor_storagepools to a convenient dict structure of the returned dict
-        where the key is the storagePoolName, the value is a dict with keys:
+        Set self.oceanstor_storagepools as dict with
+        : keys per storagePoolName and value is dict with
+        :: keys returned by OceanStor:
         - storagePoolId
         - storagePoolName
         - totalCapacity
@@ -269,8 +268,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type device: list of names (if string: 1 device, if None or all: all known devices)
 
-        Set self.oceanstor_filesystems to a convenient dict structure of the returned dict
-        where the key is the filesystem name, the value is a dict with keys:
+        Set self.oceanstor_filesystems as dict with
+        : keys per filesystemName and value is dict with
+        :: keys returned by OceanStor:
         - atime_update_mode
         - dentry_table_type
         - dir_split_bitwidth
@@ -374,7 +374,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = self.list_filesystems(update=update)
             filesystemnames = list(filesystems.keys())
 
-        filter_fs = self.select_filesystems(filesystemnames, devices)
+        filter_fs = self.select_filesystems(filesystemnames, devices=devices)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
 
         # Filter by fileset name
