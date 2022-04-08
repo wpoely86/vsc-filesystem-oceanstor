@@ -292,22 +292,24 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             storage_pools = self.list_storage_pools(update=update)
             device = list(storage_pools.keys())
 
-        sp_ids = self.select_storage_pools(device, byid=True)
-        filter_sp_ids = [{'storage_pool_id': str(sp_id)} for sp_id in sp_ids]
-        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
-        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
+        filter_sp = self.select_storage_pools(device, byid=True)
+        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in filter_sp))
 
         if not update and self.oceanstor_filesystems:
             # Use cached filesystem data
-            filesystems = {
-                fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in sp_ids
-            }
             dbg_prefix = "(cached) "
+            filesystems = {
+                fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in filter_sp
+            }
         else:
             # Request filesystem data
-            _, response = self.session.file_service.file_systems.get(filter=filter_sp_ids_json)
-            filesystems = {fs['name']: fs for fs in response['data']}
             dbg_prefix = ""
+            filesystems = dict()
+            for sp_id in filter_sp:
+                filter_json = [{'storage_pool_id': str(sp_id)}]
+                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                _, response = self.session.file_service.file_systems.get(filter=filter_json)
+                filesystems.update({fs['name']: fs for fs in response['data']})
 
             self.oceanstor_filesystems = filesystems
 
