@@ -34,9 +34,10 @@ from future.utils import with_metaclass
 
 import json
 import os
+import re
 import ssl
 
-from vsc.filesystem.posix import PosixOperations
+from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
 from vsc.utils.rest import Client, RestClient
@@ -80,6 +81,8 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
+            print(args[0])
+            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -113,12 +116,10 @@ class OceanStorClient(Client):
 
         return status, response
 
-    def get_x_auth_token(self, password, username=None):
+    def get_x_auth_token(self, username, password):
         """Request authetication token"""
-        if not username:
-            username = self.username
-
         query_url = os.path.join('aa', 'sessions')
+
         payload = {
             'user_name': username,
             'password': password,
@@ -133,6 +134,7 @@ class OceanStorClient(Client):
             errmsg = "X-Auth-Token not found in response from OceanStor"
             fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
         else:
+            self.username = username
             self.x_auth_header = {'X-Auth-Token': token}
             fancylogger.getLogger().info("OceanStor authentication switched to X-Auth-Token for this session")
 
@@ -145,32 +147,41 @@ class OceanStorRestClient(RestClient):
         self.client = OceanStorClient(*args, **kwargs)
 
 
+class OceanStorOperationError(PosixOperationError):
+    pass
+
+
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, url, username=None, password=None):
-        """Initialize REST client and request authentication token"""
+    def __init__(self, api_url, nfs_ips, username, password):
+        """
+        Initialize REST client and request authentication token
+
+        @type api_url: string with URL of REST API, only scheme and FQDM of server is needed
+        @type nfs_ips: list of IPs or FQDM of the NFS servers (if string: 1 IP)
+        @type username: string with username for the REST API
+        @type password: string with plain password for the REST API
+        """
         super(OceanStorOperations, self).__init__()
 
-        self.log = fancylogger.getLogger()
+        self.supportedfilesystems = ['nfs']
 
-        self.storagepools = None
-        self.filesystems = None
-        self.filesets = None
+        self.oceanstor_storagepools = None
+        self.oceanstor_filesystems = None
+        self.oceanstor_filesets = None
 
+        if not isinstance(nfs_ips, list):
+            self.nfs_ips = [nfs_ips]
+        else:
+            self.nfs_ips = nfs_ips
 
         # OceanStor API URL
-        self.url = os.path.join(url, *OCEANSTOR_API_PATH)
-        self.log.info("URL of OceanStor server: %s", self.url)
+        self.api_url = os.path.join(api_url, *OCEANSTOR_API_PATH)
+        self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
-        # Open API session with user/password
-        if username is None:
-            self.log.raiseException("Missing OceanStor username", TypeError)
-        if password is None:
-            self.log.raiseException("Missing password for OceanStor user: %s" % username, TypeError)
-
-        self.session = OceanStorRestClient(self.url, username=username, password=password, ssl_verify=False)
-
-        # Get token for this session
-        self.session.client.get_x_auth_token(password)
+        # Initialize REST client without user/password
+        self.session = OceanStorRestClient(self.api_url, ssl_verify=False)
+        # Get token for this session with user/password
+        self.session.client.get_x_auth_token(username, password)
 
     @staticmethod
     def json_separators(): 
@@ -181,7 +192,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         List all storage pools (equivalent to devices in GPFS)
 
-        Set self.storagepools to a convenient dict structure of the returned dict
+        Set self.oceanstor_storagepools to a convenient dict structure of the returned dict
         where the key is the storagePoolName, the value is a dict with keys:
         - storagePoolId
         - storagePoolName
@@ -206,8 +217,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - encryptType
         - supportEncryptForMainStorageMedia
         """
-        if not update and self.storagepools:
-            return self.storagepools
+        if not update and self.oceanstor_storagepools:
+            return self.oceanstor_storagepools
 
         # Request storage pools
         _, response = self.session.data_service.storagepool.get()
@@ -218,11 +229,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             storage_pools.update({sp['storagePoolName']: sp})
 
         if len(storage_pools) == 0:
-            self.log.raiseException("No storage pools found in OceanStor", RuntimeError)
+            self.log.raiseException("No storage pools found in OceanStor", OceanStorOperationError)
         else:
             self.log.debug("Storage pools in OceanStor: %s", ', '.join(storage_pools))
 
-        self.storagepools = storage_pools
+        self.oceanstor_storagepools = storage_pools
         return storage_pools
 
     def select_storage_pools(self, sp_names, byid=False):
@@ -258,7 +269,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type device: list of names (if string: 1 device, if None or all: all known devices)
 
-        Set self.filesystems to a convenient dict structure of the returned dict
+        Set self.oceanstor_filesystems to a convenient dict structure of the returned dict
         where the key is the filesystem name, the value is a dict with keys:
         - atime_update_mode
         - dentry_table_type
@@ -286,9 +297,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
 
-        if not update and self.filesystems:
+        if not update and self.oceanstor_filesystems:
             # Use cached filesystem data
-            filesystems = {fs['name']: fs for fs in self.filesystems.values() if fs['storage_pool_id'] in sp_ids}
+            filesystems = {
+                fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in sp_ids
+            }
             dbg_prefix = "(cached) "
         else:
             # Request filesystem data
@@ -296,7 +309,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = {fs['name']: fs for fs in response['data']}
             dbg_prefix = ""
 
-            self.filesystems = filesystems
+            self.oceanstor_filesystems = filesystems
 
         self.log.debug(dbg_prefix + "Filesystems in OceanStor: %s", ", ".join(filesystems))
 
@@ -338,13 +351,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Get all dtree filesets in given devices and given filesystems
         Filter reported results by name of filesystem
-        Store unfiltered data in self.fileset (all filesets in given devices and given filesystems)
+        Store unfiltered data in self.oceanstor_filesets (all filesets in given devices and given filesystems)
 
         @type devices: list of devices (if string: 1 device; if None: all found devices)
         @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
         @type filesetnames: list of fileset names (if string: 1 fileset)
 
-        Set self.filesets as dict with
+        Set self.oceanstor_filesets as dict with
         : keys per parent filesystemName and value is dict with
         :: keys per dtree fileset ID and value is dict with
         ::: keys returned by OceanStor:
@@ -371,10 +384,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
 
-        if not update and self.filesets:
+        if not update and self.oceanstor_filesets:
             # Use cached dtree fileset data and filter by filesystem name
             dbg_prefix = "(cached) "
-            dtree_filesets = {fs: self.filesets[fs] for fs in filter_fs}
+            dtree_filesets = {fs: self.oceanstor_filesets[fs] for fs in filter_fs}
         else:
             # Request dtree filesets
             dbg_prefix = ""
@@ -387,7 +400,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 dtree_filesets[fs_name] = fs_dtree
 
             # Store all dtree filesets in the selected filesystems
-            self.filesets = dtree_filesets
+            self.oceanstor_filesets = dtree_filesets
 
         if filesetnames:
             # Filter by name of fileset
@@ -405,3 +418,153 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
 
         return dtree_filesets
+
+    def _local_filesystems(self):
+        """
+        Identify local NFS filesystems from OceanStor
+        Set filesystem name in OceanStor as attribute of local filesystems
+        """
+        super(OceanStorOperations, self)._local_filesystems()
+
+        if self.oceanstor_filesystems is None:
+            self.list_filesystems()
+
+        # Add filesystem name in OceanStor to list of attributes of local filesystems
+        self.localfilesystemnaming.append('oceanstorfs')
+
+        for fs in self.localfilesystems:
+            fs_oceanstor_name = None
+
+            if fs[self.localfilesystemnaming.index('type')] in self.supportedfilesystems:
+                # Check NFS mount server and filesystem name
+                mount_device = fs[self.localfilesystemnaming.index('device')]
+                mount_ip, fs_path = mount_device.split(':', 1)
+
+                # Determine if filesystem is a known filesystem in OceanStor
+                if mount_ip in self.nfs_ips:
+                    fs_name = os.path.basename(fs_path)
+                    try:
+                        fs_oceanstor_name = self.oceanstor_filesystems[fs_name]['name']
+                    except KeyError as err:
+                        errmsg = "NFS mount '%s' served from OceanStor has an unkown filesystem '%s' to the REST API"
+                        self.log.raiseException(errmsg % (mount_device, fs_name), OceanStorOperationError)
+
+            # Add filesystem name in OceanStor to all mounts (even if None)
+            fs.append(fs_oceanstor_name)
+
+    def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
+                     inodes_max=None, inodes_prealloc=None):
+        """
+        Create a new fileset in a NFS mounted filesystem from OceanStor
+
+        - The name of the dtree fileset and the folder where it is mounted always share the same name.
+        - Dtree filesets cannot be nested (parent_fileset_name is ignored)
+        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem),
+          but this information cannot be retrieved back from the OceanStor API (list_filesets()).
+          Therefore, all filesets in a common filesystem must have unique names.
+
+        @type new_fileset_path: string with the full path in the local system of the new fileset
+        @type fileset_name: string with the name of the new fileset
+                            (if not None, fileset_name is appended to new_fileset_path)
+        """
+        # Unsupported features
+        del parent_fileset_name
+        del afm
+        del inodes_max
+        del inodes_prealloc
+
+        dt_fullpath = self._sanity_check(new_fileset_path)
+
+        if fileset_name is None:
+            # Use name of last folder as name of dtree fileset in OceanStor
+            fileset_name = os.path.basename(dt_fullpath)
+        else:
+            # Append the fileset name to the given path
+            dt_fullpath = os.path.join(dt_fullpath, fileset_name)
+            dt_fullpath = self._sanity_check(dt_fullpath)
+
+        # Check existence of path in local filesystem
+        if self.exists(dt_fullpath):
+            errmsg = "Path of new fileset '%s' is validated as '%s' but it already exists."
+            self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
+
+        dt_parentdir = os.path.dirname(dt_fullpath)
+        if not self.exists(dt_parentdir):
+            errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
+            self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
+
+        # Get local mounted filesystem and remote one in OceanStor
+        local_fs = self.what_filesystem(dt_parentdir)
+        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
+        oceanstor_fs_name = local_fs[self.localfilesystemnaming.index('oceanstorfs')]
+
+        # Relative path of parent directory holding the fileset
+        dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
+        if dt_parentdir_relative.startswith('..'):
+            errmsg = "Parent directory of new fileset cannot be outside of filesystem boundaries. %s got: '%s'"
+            self.log.raiseException(errmsg % (fileset_name, dt_parentdir_relative), OceanStorOperationError)
+        elif dt_parentdir_relative == '.':
+            dt_parentdir_relative = ''
+
+        oceanstor_parentdir = '/' + dt_parentdir_relative
+        self.log.debug("Creating new dtree fileset with parent directory: '%s'", oceanstor_parentdir)
+
+        # Send API request to create the new dtree fileset
+        self.make_fileset_api(fileset_name, oceanstor_fs_name, parent_dir=oceanstor_parentdir)
+
+    def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
+        """
+        Create new dtree fileset in given filesystem of OceanStor
+        
+        - Dtree filesets cannot be nested
+        - Dtree filesets can be created at specific path inside the filesystem,
+          but this information cannot be retrieved back from the OceanStor API
+          (list_filesets()). Therefore, all filesets in a common filesystem must
+          have unique names.
+
+        @type fileset_name: string with the name of the new fileset
+        @type filesystem_name: string with the name of an existing filesystem
+        @type parent_dir: string with path of parent directory of new fileset
+                          (path relative to root of filesystem)
+        """
+        self.list_filesets()  # make sure fileset data is present (but do not update)
+
+        # Check filesystem presence
+        if filesystem_name not in self.oceanstor_filesets:
+            errmsg = "Requested filesystem '%s' for new dtree fileset '%s' not found."
+            self.log.raiseException(errmsg % (filesystem_name, fileset_name), OceanStorOperationError)
+
+        # Check if a dtree fileset with this name alreay exists
+        for dt in self.oceanstor_filesets[filesystem_name].values():
+            if dt['name'] == fileset_name:
+                errmsg = "Found existing dtree fileset '%s' with same name as new one '%s'"
+                self.log.raiseException(errmsg % (dt['name'], fileset_name), OceanStorOperationError)
+
+        # Check if OceanStor name constrains for dtrees are met
+        unallowed_name_chars = re.compile(r'[^a-zA-Z0-9._]')
+        if unallowed_name_chars.search(fileset_name):
+            errmsg = "Name of new dtree fileset contains invalid characters: %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+        elif len(fileset_name) > 255:
+            errmsg = "Name of new dtree fileset is too long (max. 255 characters): %s"
+            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+        else:
+            self.log.debug("Validated name of new dtree fileset: %s", fileset_name)
+
+        # Ensure absolute path for parent directory
+        if not os.path.isabs(parent_dir):
+            parent_dir = '/' + parent_dir
+
+        # Create dtree fileset
+        new_dtree_params = {
+            "name": fileset_name,
+            "file_system_name": filesystem_name,
+            "parent_dir": parent_dir,
+        }
+        self.log.debug("Creating dtree with: %s", new_dtree_params)
+
+        _, result = self.session.file_service.dtrees.post(body=new_dtree_params)
+        self.log.info("New dtree fileset created succesfully: %s", result)
+
+        # Rescan all filesets and force update the info
+        self.list_filesets(update=True)
