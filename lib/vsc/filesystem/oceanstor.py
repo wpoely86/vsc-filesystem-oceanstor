@@ -368,6 +368,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - security_style
         - unix_mode
         """
+        if self.oceanstor_filesets is None:
+            self.oceanstor_filesets = dict()
 
         # Filter by filesystem name (in target storage pools)
         if filesystemnames is None:
@@ -377,6 +379,26 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_fs = self.select_filesystems(filesystemnames, devices=devices)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
 
+        dtree_filesets = dict()
+        for fs_name in filter_fs:
+            if not update and fs_name in self.oceanstor_filesets:
+                # Use cached dtree fileset data and filter by filesystem name
+                dbg_prefix = "(cached) "
+                dtree_filesets[fs_name] = self.oceanstor_filesets[fs_name]
+            else:
+                # Request dtree filesets
+                dbg_prefix = ""
+                # query dtrees in this filesystem
+                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
+                fs_dtree = {dt['id']: dt for dt in response['data']}
+                dtree_filesets[fs_name] = fs_dtree
+
+            dt_names = [dt['name'] for dt in dtree_filesets[fs_name].values()]
+            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs_name, ', '.join(dt_names))
+
+        # Update dtree filesets in the selected filesystems
+        self.oceanstor_filesets.update(dtree_filesets)
+
         # Filter by fileset name
         if filesetnames is not None:
             if isinstance(filesetnames, str):
@@ -384,38 +406,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
 
-        if not update and self.oceanstor_filesets:
-            # Use cached dtree fileset data and filter by filesystem name
-            dbg_prefix = "(cached) "
-            dtree_filesets = {fs: self.oceanstor_filesets[fs] for fs in filter_fs}
-        else:
-            # Request dtree filesets
-            dbg_prefix = ""
-            dtree_filesets = dict()
-            for fs_name in filter_fs:
-                # query dtrees in this filesystem
-                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
-                fs_dtree = {dt['id']: dt for dt in response['data']}
-                # organize dtree filesets by filesystem name
-                dtree_filesets[fs_name] = fs_dtree
-
-            # Store all dtree filesets in the selected filesystems
-            self.oceanstor_filesets = dtree_filesets
-
-        if filesetnames:
-            # Filter by name of fileset
             # REST API does not accept multiple names in the filter of 'file_service/dtrees'
-            # Therefore, we request all entries and filter a posteriori
+            # Therefore, we filter from cached data
             for fs in dtree_filesets:
                 dtree_filesets[fs] = {
                     dt: dtree_filesets[fs][dt]
                     for dt in dtree_filesets[fs]
                     if dtree_filesets[fs][dt]['name'] in filesetnames
                 }
-
-        for fs in dtree_filesets:
-            dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
-            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
 
         return dtree_filesets
 
