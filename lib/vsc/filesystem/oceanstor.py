@@ -654,11 +654,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
-        - The name of the dtree fileset and the folder where it is mounted always share the same name.
+        - All filesets in a common filesystem must have unique names (enforced by API)
+        - The name of the dtree fileset and the folder where it is mounted always share the same name
         - Dtree filesets cannot be nested (parent_fileset_name is ignored)
-        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem),
-          but this information cannot be retrieved back from the OceanStor API (list_filesets()).
-          Therefore, all filesets in a common filesystem must have unique names.
+        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem)
 
         @type new_fileset_path: string with the full path in the local system of the new fileset
         @type fileset_name: string with the name of the new fileset
@@ -724,11 +723,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Create new dtree fileset in given filesystem of OceanStor
 
+        - All filesets in a common filesystem must have unique names (enforced by API)
         - Dtree filesets cannot be nested
-        - Dtree filesets can be created at specific path inside the filesystem,
-          but this information cannot be retrieved back from the OceanStor API
-          (list_filesets()). Therefore, all filesets in a common filesystem must
-          have unique names.
+        - Dtree filesets can be created at specific paths inside the filesystem
 
         @type fileset_name: string with the name of the new fileset
         @type filesystem_name: string with the name of an existing filesystem
