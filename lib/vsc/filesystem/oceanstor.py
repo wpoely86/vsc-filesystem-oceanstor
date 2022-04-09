@@ -37,7 +37,7 @@ import os
 import re
 import ssl
 
-from ipaddress import IPv4Address, IPv4Network
+from ipaddress import IPv4Address, AddressValueError
 
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
@@ -49,6 +49,9 @@ OCEANSTOR_API_PATH = ['api', 'v2']
 
 # REST API cannot handle white spaces between keys and values
 OCEANSTOR_JSON_SEP = (',', ':')
+
+# Keyword identifying the VSC network zone
+VSC_NETWORK_LABEL = 'VSC'
 
 
 class OceanStorClient(Client):
@@ -168,8 +171,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_storagepools = None
         self.oceanstor_filesystems = None
         self.oceanstor_filesets = None
+
         self.oceanstor_nfsshares = None
         self.oceanstor_nfsclients = None
+        self.oceanstor_nfsservers = None
 
         self.account = account
 
@@ -546,6 +551,32 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_nfsclients.update(nfs_clients)
 
         return nfs_clients
+
+    def list_nfs_servers(self, update=False):
+        """
+        Return list of IPs in the VSC network of all servers in the OceanStor cluster
+        """
+        if not update and self.oceanstor_nfsservers:
+            return self.oceanstor_nfsservers
+
+        # Request all server IPs
+        _, response = self.session.eds_dns_service.ips.get()
+        nfs_servers = [node['ip_address'] for node in response['data'] if VSC_NETWORK_LABEL in node['iface_name']]
+        # Strip subnet bits from IP addresses
+        nfs_servers = [ip.split('/', 1)[0] for ip in nfs_servers]
+
+        # Validate IP addresses
+        comma_sep_ips = ', '.join([str(ip) for ip in nfs_servers])
+        try:
+            nfs_servers = [IPv4Address(ip) for ip in nfs_servers]
+        except AddressValueError as err:
+            errmsg = "Received malformed server IPs from OceanStor: %s" % comma_sep_ips
+            self.log.raiseException(errmsg, OceanStorOperationError)
+        else:
+            self.log.debug("NFS servers in OceanStor: %s", comma_sep_ips) 
+
+        self.oceanstor_nfsservers = nfs_servers
+        return nfs_servers
 
     def _local_filesystems(self):
         """
