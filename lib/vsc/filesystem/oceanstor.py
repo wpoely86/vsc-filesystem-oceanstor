@@ -675,7 +675,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Check existence of path in local filesystem
         if self.exists(dt_fullpath):
-            errmsg = "Path of new fileset '%s' is validated as '%s' but it already exists."
+            errmsg = "Path of new fileset in '%s' validated as '%s' but it already exists."
             self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
 
         dt_parentdir = os.path.dirname(dt_fullpath)
@@ -683,12 +683,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
             self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
 
-        # Get local mounted filesystem and remote one in OceanStor
+        # Identify local mounted filesystem
         local_fs = self.what_filesystem(dt_parentdir)
-        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
-        oceanstor_fs_name = local_fs[self.localfilesystemnaming.index('oceanstorfs')]
+
+        # Check type of OceanStor object mounted in this path
+        oceanstor_id = local_fs[self.localfilesystemnaming.index('oceanstor')]
+        oceanstor_fs_id, oceanstor_dtree_id = oceanstor_id.split('@', 1)
+        if int(oceanstor_dtree_id) == 0:
+            # This NFS mount contains a filesystem
+            oceanstor_fs_name = next(iter(self.select_filesystems(oceanstor_fs_id, byid=True)))
+            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", oceanstor_fs_name)
+        else:
+            # This NFS mount contains a dtree fileset
+            errmsg = "NFS mount '%s' is already a dtree fileset (%s). Nested dtrees are not allowed in OceanStor."
+            self.log.raiseException(errmsg % (dt_fullpath, oceanstor_id), OceanStorOperationError)
 
         # Relative path of parent directory holding the fileset
+        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
         dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
         if dt_parentdir_relative.startswith('..'):
             errmsg = "Parent directory of new fileset cannot be outside of filesystem boundaries. %s got: '%s'"
