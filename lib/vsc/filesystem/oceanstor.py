@@ -594,41 +594,36 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # NFS share paths and their IDs
         oceanstor_shares = self.list_nfs_shares()
         oceanstor_share_paths = {
-            os.path.normpath(nfs_share[ns]['share_path']): (nfs_share[ns]['id'], nfs_share[ns]['dtree_id'])
+            os.path.normpath(nfs_share[ns]['share_path']): nfs_share[ns]['dtree_id']
             for nfs_share in oceanstor_shares.values() for ns in nfs_share
         }
 
         for fs in self.localfilesystems:
-            oceanstor_ref = None
+            oceanstor_tag = None
 
             if fs[self.localfilesystemnaming.index('type')] in self.supportedfilesystems:
+                # Possible NFS mount from OceanStor
                 mount_point = fs[self.localfilesystemnaming.index('mountpoint')]
                 mount_device = fs[self.localfilesystemnaming.index('device')]
-                client_ip, share_path = mount_device.split(':', 1)
+                server_ip, share_path = mount_device.split(':', 1)
 
-                # Check NFS share path
-                share_path = os.path.normpath(share_path)
-                if share_path in oceanstor_share_paths:
-                    share_id = oceanstor_share_paths[share_path][0]
-
-                    # Allowed clients for this NFS share
-                    oceanstor_clients = self.list_nfs_clients(nfs_share_id=share_id)
-                    oceanstor_clients = oceanstor_clients[share_id]
-                    # convert IP ranges to list of IPs
-                    oceanstor_client_ips = [
-                        ip for nc in oceanstor_clients for ip in IPv4Network(oceanstor_clients[nc]['access_name'])
-                    ]
-
-                    # Check NFS client IP
-                    client_ip = IPv4Address(client_ip)
-                    if any(client_ip == ip for ip in oceanstor_client_ips):
-                        oceanstor_ref = oceanstor_share_paths[share_path][1]
+                # Check NFS server IP
+                server_ip = IPv4Address(server_ip)
+                oceanstor_nfs_servers = self.list_nfs_servers()
+                if any(server_ip == oceanstor_ip for oceanstor_ip in oceanstor_nfs_servers):
+                    # Check share path
+                    share_path = os.path.normpath(share_path)
+                    if share_path in oceanstor_share_paths:
+                        oceanstor_tag = oceanstor_share_paths[share_path]
+                        dbgmsg = "Local NFS mount '%s' is served by OceanStor and shares object ID: %s"
+                        self.log.debug(dbgmsg, mount_point, oceanstor_tag) 
                     else:
-                        errmsg = "NFS mount '%s' shared from OceanStor '%s' uses an unkown IP '%s'"
-                        self.log.raiseException(errmsg % (mount_point, share_path, client_ip), OceanStorOperationError)
+                        errmsg = "NFS mount '%s' served from OceanStor '%s' shares unkown path '%s'"
+                        errmsg = errmsg % (mount_point, str(server_ip), share_path)
+                        self.log.raiseException(errmsg, OceanStorOperationError)
 
             # Add filesystem name in OceanStor to all mounts (even if None)
-            fs.append(oceanstor_ref)
+            fs.append(oceanstor_tag)
 
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
                      inodes_max=None, inodes_prealloc=None):
