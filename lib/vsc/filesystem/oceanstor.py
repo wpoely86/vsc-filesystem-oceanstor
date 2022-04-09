@@ -334,7 +334,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         if not isinstance(filesystemnames, list):
             filesystemnames = [filesystemnames]
-        
+
         target_filesystems = [str(fs) for fs in filesystemnames]
 
         # Filter by storage pools
@@ -348,7 +348,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 errmsg = "Malformed list of filesystem IDs: %s"
                 self.log.raiseException(errmsg % ', '.join([str(fs_id) for fs_id in target_filesystems]), ValueError)
             else:
-                # Convert known IDs to names 
+                # Convert known IDs to names
                 for n, fs_id in enumerate(target_filesystems_id):
                     fs_name = [fs for fs in filesystems if filesystems[fs]['id'] == fs_id]
                     if fs_name:
@@ -421,7 +421,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     dtree_api_path = os.path.join('file_service', 'dtrees', dt_id)
                     _, dt_response = self.session.get(url=dtree_api_path)
                     fs_dtree[dt_id]['parent_dir'] = dt_response['data']['parent_dir']
-            
+
                 dtree_filesets[fs_name] = fs_dtree
 
             dt_names = [dt['name'] for dt in dtree_filesets[fs_name].values()]
@@ -596,7 +596,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Received malformed server IPs from OceanStor: %s" % comma_sep_ips
             self.log.raiseException(errmsg, OceanStorOperationError)
         else:
-            self.log.debug("NFS servers in OceanStor: %s", comma_sep_ips) 
+            self.log.debug("NFS servers in OceanStor: %s", comma_sep_ips)
 
         self.oceanstor_nfsservers = nfs_servers
         return nfs_servers
@@ -618,7 +618,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         oceanstor_shares = self.list_nfs_shares()
         oceanstor_share_paths = {
             os.path.normpath(nfs_share[ns]['share_path']): nfs_share[ns]['dtree_id']
-            for nfs_share in oceanstor_shares.values() for ns in nfs_share
+            for nfs_share in oceanstor_shares.values()
+            for ns in nfs_share
         }
 
         for fs in self.localfilesystems:
@@ -639,7 +640,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     if share_path in oceanstor_share_paths:
                         oceanstor_tag = oceanstor_share_paths[share_path]
                         dbgmsg = "Local NFS mount '%s' is served by OceanStor and shares object ID: %s"
-                        self.log.debug(dbgmsg, mount_point, oceanstor_tag) 
+                        self.log.debug(dbgmsg, mount_point, oceanstor_tag)
                     else:
                         errmsg = "NFS mount '%s' served from OceanStor '%s' shares unkown path '%s'"
                         errmsg = errmsg % (mount_point, str(server_ip), share_path)
