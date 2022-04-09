@@ -325,22 +325,39 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def select_filesystems(self, filesystemnames, devices=None, byid=False):
         """
-        Return list of existing filesytem with the provided filesystem names
-        Restrict list to filesystems found in given storage pools names
+        Return dict of existing filesytem names and their IDs that match given filesystem names
+        Restrict found filesystems to given storage pools names
 
         @type filesystemnames: list of filesystem names (if string: 1 filesystem)
         @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
-        @type byid: boolean (if True: return list of filesystem IDs)
+        @type byid: boolean (if True: seek filesystems by ID instead of name)
         """
-
         if not isinstance(filesystemnames, list):
-            target_filesystems = [filesystemnames]
-        else:
-            target_filesystems = filesystemnames
+            filesystemnames = [filesystemnames]
+        
+        target_filesystems = [str(fs) for fs in filesystemnames]
 
         # Filter by storage pools
         filesystems = self.list_filesystems(device=devices)
 
+        if byid:
+            # Seek filesystems by numeric ID
+            try:
+                target_filesystems_id = [int(fs_id) for fs_id in target_filesystems]
+            except ValueError as err:
+                errmsg = "Malformed list of filesystem IDs: %s"
+                self.log.raiseException(errmsg % ', '.join([str(fs_id) for fs_id in target_filesystems]), ValueError)
+            else:
+                # Convert known IDs to names 
+                for n, fs_id in enumerate(target_filesystems_id):
+                    fs_name = [fs for fs in filesystems if filesystems[fs]['id'] == fs_id]
+                    if fs_name:
+                        target_filesystems[n] = fs_name[0]
+
+            self.log.debug("Converted filesystem IDs to filesystem names: %s", ', '.join(target_filesystems))
+
+        # Seek filesystems by name
+        # (perform this step even with 'byid' to identify any not found filesystem)
         try:
             fs_select = [filesystems[fs]['name'] for fs in target_filesystems]
         except KeyError as err:
@@ -349,9 +366,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
             self.log.raiseException(errmsg, KeyError)
 
-        # Convert names to IDs
-        if byid:
-            fs_select = [filesystems[fs]['id'] for fs in fs_select]
+        # Generate dict of names and IDs
+        fs_select = {fs: filesystems[fs]['id'] for fs in fs_select}
+        self.log.debug("Selected OceanStor filesystems: %s", ', '.join(fs_select))
 
         return fs_select
 
