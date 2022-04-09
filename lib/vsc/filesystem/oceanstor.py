@@ -37,6 +37,8 @@ import os
 import re
 import ssl
 
+from ipaddress import IPv4Address, IPv4Network
+
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
@@ -503,9 +505,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.oceanstor_nfsclients is None:
             self.oceanstor_nfsclients = dict()
 
-        # NFS shares in given filesystems: 2 level dict {filesystem: {nfs_share: }}
+        # NFS shares in given filesystems
         nfs_shares = self.list_nfs_shares(filesystemnames=filesystemnames, update=update)
-        nfs_id_pool = [ns for fs in nfs_shares.values() for ns in fs]
+        nfs_id_pool = [nfs_shares[fs][ns]['id'] for fs in nfs_shares for ns in nfs_shares[fs]]
 
         # Filter by NFS share ID
         if nfs_share_id is None:
@@ -556,27 +558,46 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.list_filesystems()
 
         # Add filesystem name in OceanStor to list of attributes of local filesystems
-        self.localfilesystemnaming.append('oceanstorfs')
+        self.localfilesystemnaming.append('oceanstor')
+
+        # NFS share paths and their IDs
+        oceanstor_shares = self.list_nfs_shares()
+        oceanstor_share_paths = {
+            os.path.normpath(nfs_share[ns]['share_path']): (nfs_share[ns]['id'], nfs_share[ns]['dtree_id'])
+            for nfs_share in oceanstor_shares.values() for ns in nfs_share
+        }
 
         for fs in self.localfilesystems:
-            fs_oceanstor_name = None
+            oceanstor_ref = None
 
             if fs[self.localfilesystemnaming.index('type')] in self.supportedfilesystems:
-                # Check NFS mount server and filesystem name
+                mount_point = fs[self.localfilesystemnaming.index('mountpoint')]
                 mount_device = fs[self.localfilesystemnaming.index('device')]
-                mount_ip, fs_path = mount_device.split(':', 1)
+                client_ip, share_path = mount_device.split(':', 1)
 
-                # Determine if filesystem is a known filesystem in OceanStor
-                if mount_ip in self.nfs_ips:
-                    fs_name = os.path.basename(fs_path)
-                    try:
-                        fs_oceanstor_name = self.oceanstor_filesystems[fs_name]['name']
-                    except KeyError as err:
-                        errmsg = "NFS mount '%s' served from OceanStor has an unkown filesystem '%s' to the REST API"
-                        self.log.raiseException(errmsg % (mount_device, fs_name), OceanStorOperationError)
+                # Check NFS share path
+                share_path = os.path.normpath(share_path)
+                if share_path in oceanstor_share_paths:
+                    share_id = oceanstor_share_paths[share_path][0]
+
+                    # Allowed clients for this NFS share
+                    oceanstor_clients = self.list_nfs_clients(nfs_share_id=share_id)
+                    oceanstor_clients = oceanstor_clients[share_id]
+                    # convert IP ranges to list of IPs
+                    oceanstor_client_ips = [
+                        ip for nc in oceanstor_clients for ip in IPv4Network(oceanstor_clients[nc]['access_name'])
+                    ]
+
+                    # Check NFS client IP
+                    client_ip = IPv4Address(client_ip)
+                    if any(client_ip == ip for ip in oceanstor_client_ips):
+                        oceanstor_ref = oceanstor_share_paths[share_path][1]
+                    else:
+                        errmsg = "NFS mount '%s' shared from OceanStor '%s' uses an unkown IP '%s'"
+                        self.log.raiseException(errmsg % (mount_point, share_path, client_ip), OceanStorOperationError)
 
             # Add filesystem name in OceanStor to all mounts (even if None)
-            fs.append(fs_oceanstor_name)
+            fs.append(oceanstor_ref)
 
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
                      inodes_max=None, inodes_prealloc=None):
