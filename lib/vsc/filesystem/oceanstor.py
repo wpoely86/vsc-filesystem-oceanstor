@@ -450,7 +450,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
 
         Set self.oceanstor_nfsshares as dict with
-        : keys per filesystem ID and value is dict with
+        : keys per filesystem name and value is dict with
         :: keys per NFS share ID and value is dict with
         ::: keys returned by OceanStor:
         - account_id
@@ -469,15 +469,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = self.list_filesystems(update=update)
             filesystemnames = list(filesystems.keys())
 
-        filter_fs = self.select_filesystems(filesystemnames, byid=True)
-        self.log.debug("Seeking NFS shares in filesystems: %s", ', '.join(str(i) for i in filter_fs))
+        filter_fs = self.select_filesystems(filesystemnames)
+        self.log.debug("Seeking NFS shares in filesystems: %s", ', '.join(filter_fs))
 
         nfs_shares = dict()
-        for fs_id in filter_fs:
-            if not update and fs_id in self.oceanstor_nfsshares:
+        for fs_name, fs_id in filter_fs.items():
+            if not update and fs_name in self.oceanstor_nfsshares:
                 # Use cached data
                 dbg_prefix = "(cached) "
-                nfs_shares[fs_id] = self.oceanstor_nfsshares[fs_id]
+                nfs_shares[fs_name] = self.oceanstor_nfsshares[fs_name]
             else:
                 # Request NFS shares
                 dbg_prefix = ""
@@ -489,11 +489,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 }
                 _, response = self.session.nas_protocol.nfs_share_list.get(**query_params)
                 fs_nfs_shares = {ns['id']: ns for ns in response['data']}
-                nfs_shares[fs_id] = fs_nfs_shares
+                nfs_shares[fs_name] = fs_nfs_shares
 
-            nfs_desc = ["'%s'" % ns['description'] for ns in nfs_shares[fs_id].values()]
-            dbgmsg = "NFS shares in OceanStor filesystem ID '%s': %s"
-            self.log.debug(dbg_prefix + dbgmsg, fs_id, ', '.join(nfs_desc))
+            nfs_desc = ["'%s'" % ns['description'] for ns in nfs_shares[fs_name].values()]
+            dbgmsg = "NFS shares in OceanStor filesystem '%s': %s"
+            self.log.debug(dbg_prefix + dbgmsg, fs_name, ', '.join(nfs_desc))
 
         # Store all NFS shares in selected filesystems
         self.oceanstor_nfsshares.update(nfs_shares)
