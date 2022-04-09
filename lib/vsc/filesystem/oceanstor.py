@@ -757,6 +757,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.debug("Validated name of new dtree fileset: %s", fileset_name)
 
         # Ensure absolute path for parent directory
+        # TODO: create parent directory if it does not exist
         if not os.path.isabs(parent_dir):
             parent_dir = '/' + parent_dir
 
