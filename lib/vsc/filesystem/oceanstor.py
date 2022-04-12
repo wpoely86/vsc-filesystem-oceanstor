@@ -168,13 +168,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.supportedfilesystems = ['nfs']
 
-        self.oceanstor_storagepools = None
-        self.oceanstor_filesystems = None
-        self.oceanstor_filesets = None
+        self.oceanstor_storagepools = dict()
+        self.oceanstor_filesystems = dict()
+        self.oceanstor_filesets = dict()
 
-        self.oceanstor_nfsshares = None
-        self.oceanstor_nfsclients = None
-        self.oceanstor_nfsservers = None
+        self.oceanstor_nfsshares = dict()
+        self.oceanstor_nfsclients = dict()
+        self.oceanstor_nfsservers = dict()
 
         self.account = account
 
@@ -393,8 +393,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - security_style
         - unix_mode
         """
-        if self.oceanstor_filesets is None:
-            self.oceanstor_filesets = dict()
 
         # Filter by filesystem name (in target storage pools)
         if filesystemnames is None:
@@ -467,8 +465,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - id
         - share_path
         """
-        if self.oceanstor_nfsshares is None:
-            self.oceanstor_nfsshares = dict()
 
         # Filter by filesystem name
         if filesystemnames is None:
@@ -530,8 +526,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - sync
         - type
         """
-        if self.oceanstor_nfsclients is None:
-            self.oceanstor_nfsclients = dict()
 
         # NFS shares in given filesystems
         nfs_shares = self.list_nfs_shares(filesystemnames=filesystemnames, update=update)
