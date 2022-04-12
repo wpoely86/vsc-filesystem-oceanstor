@@ -637,7 +637,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         dbgmsg = "Local NFS mount '%s' is served by OceanStor and shares object ID: %s"
                         self.log.debug(dbgmsg, mount_point, oceanstor_tag)
                     else:
-                        errmsg = "NFS mount '%s' served from OceanStor '%s' shares unkown path '%s'"
+                        errmsg = "NFS mount '%s' served from OceanStor '%s' shares unknown path '%s'"
                         errmsg = errmsg % (mount_point, str(server_ip), share_path)
                         self.log.raiseException(errmsg, OceanStorOperationError)
 
