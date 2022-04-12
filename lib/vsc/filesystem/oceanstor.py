@@ -390,6 +390,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - id
         - name
         - owner
+        - parent_dir
         - security_style
         - unix_mode
         """
