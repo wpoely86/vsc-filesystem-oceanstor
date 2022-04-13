@@ -37,6 +37,8 @@ import os
 import re
 import ssl
 
+from ipaddress import IPv4Address, AddressValueError
+
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
@@ -47,6 +49,9 @@ OCEANSTOR_API_PATH = ['api', 'v2']
 
 # REST API cannot handle white spaces between keys and values
 OCEANSTOR_JSON_SEP = (',', ':')
+
+# Keyword identifying the VSC network zone
+VSC_NETWORK_LABEL = 'VSC'
 
 
 class OceanStorClient(Client):
@@ -81,8 +86,6 @@ class OceanStorClient(Client):
         # Execute request catching any HTTPerror
         try:
             status, response = super(OceanStorClient, self).request(*args, **kwargs)
-            print(args[0])
-            print(json.dumps(response, indent=4))
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -152,12 +155,12 @@ class OceanStorOperationError(PosixOperationError):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, api_url, nfs_ips, username, password):
+    def __init__(self, api_url, account, username, password):
         """
         Initialize REST client and request authentication token
 
         @type api_url: string with URL of REST API, only scheme and FQDM of server is needed
-        @type nfs_ips: list of IPs or FQDM of the NFS servers (if string: 1 IP)
+        @type account: string with name of account in OceanStor
         @type username: string with username for the REST API
         @type password: string with plain password for the REST API
         """
@@ -165,14 +168,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.supportedfilesystems = ['nfs']
 
-        self.oceanstor_storagepools = None
-        self.oceanstor_filesystems = None
-        self.oceanstor_filesets = None
+        self.oceanstor_storagepools = dict()
+        self.oceanstor_filesystems = dict()
+        self.oceanstor_filesets = dict()
 
-        if not isinstance(nfs_ips, list):
-            self.nfs_ips = [nfs_ips]
-        else:
-            self.nfs_ips = nfs_ips
+        self.oceanstor_nfsshares = dict()
+        self.oceanstor_nfsclients = dict()
+        self.oceanstor_nfsservers = dict()
+
+        self.account = account
 
         # OceanStor API URL
         self.api_url = os.path.join(api_url, *OCEANSTOR_API_PATH)
@@ -184,7 +188,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.session.client.get_x_auth_token(username, password)
 
     @staticmethod
-    def json_separators(): 
+    def json_separators():
         """JSON formatting for OceanStor API"""
         return OCEANSTOR_JSON_SEP
 
@@ -192,8 +196,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         List all storage pools (equivalent to devices in GPFS)
 
-        Set self.oceanstor_storagepools to a convenient dict structure of the returned dict
-        where the key is the storagePoolName, the value is a dict with keys:
+        Set self.oceanstor_storagepools as dict with
+        : keys per storagePoolName and value is dict with
+        :: keys returned by OceanStor:
         - storagePoolId
         - storagePoolName
         - totalCapacity
@@ -269,8 +274,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type device: list of names (if string: 1 device, if None or all: all known devices)
 
-        Set self.oceanstor_filesystems to a convenient dict structure of the returned dict
-        where the key is the filesystem name, the value is a dict with keys:
+        Set self.oceanstor_filesystems as dict with
+        : keys per filesystemName and value is dict with
+        :: keys returned by OceanStor:
         - atime_update_mode
         - dentry_table_type
         - dir_split_bitwidth
@@ -292,22 +298,24 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             storage_pools = self.list_storage_pools(update=update)
             device = list(storage_pools.keys())
 
-        sp_ids = self.select_storage_pools(device, byid=True)
-        filter_sp_ids = [{'storage_pool_id': str(sp_id)} for sp_id in sp_ids]
-        filter_sp_ids_json = json.dumps(filter_sp_ids, separators=self.json_separators())
-        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in sp_ids))
+        filter_sp = self.select_storage_pools(device, byid=True)
+        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ', '.join(str(i) for i in filter_sp))
 
         if not update and self.oceanstor_filesystems:
             # Use cached filesystem data
-            filesystems = {
-                fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in sp_ids
-            }
             dbg_prefix = "(cached) "
+            filesystems = {
+                fs['name']: fs for fs in self.oceanstor_filesystems.values() if fs['storage_pool_id'] in filter_sp
+            }
         else:
             # Request filesystem data
-            _, response = self.session.file_service.file_systems.get(filter=filter_sp_ids_json)
-            filesystems = {fs['name']: fs for fs in response['data']}
             dbg_prefix = ""
+            filesystems = dict()
+            for sp_id in filter_sp:
+                filter_json = [{'storage_pool_id': str(sp_id)}]
+                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                _, response = self.session.file_service.file_systems.get(filter=filter_json)
+                filesystems.update({fs['name']: fs for fs in response['data']})
 
             self.oceanstor_filesystems = filesystems
 
@@ -317,22 +325,39 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def select_filesystems(self, filesystemnames, devices=None, byid=False):
         """
-        Return list of existing filesytem with the provided filesystem names
-        Restrict list to filesystems found in given storage pools names
+        Return dict of existing filesytem names and their IDs that match given filesystem names
+        Restrict found filesystems to given storage pools names
 
         @type filesystemnames: list of filesystem names (if string: 1 filesystem)
         @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
-        @type byid: boolean (if True: return list of filesystem IDs)
+        @type byid: boolean (if True: seek filesystems by ID instead of name)
         """
-
         if not isinstance(filesystemnames, list):
-            target_filesystems = [filesystemnames]
-        else:
-            target_filesystems = filesystemnames
+            filesystemnames = [filesystemnames]
+
+        target_filesystems = [str(fs) for fs in filesystemnames]
 
         # Filter by storage pools
         filesystems = self.list_filesystems(device=devices)
 
+        if byid:
+            # Seek filesystems by numeric ID
+            try:
+                target_filesystems_id = [int(fs_id) for fs_id in target_filesystems]
+            except ValueError as err:
+                errmsg = "Malformed list of filesystem IDs: %s"
+                self.log.raiseException(errmsg % ', '.join([str(fs_id) for fs_id in target_filesystems]), ValueError)
+            else:
+                # Convert known IDs to names
+                for n, fs_id in enumerate(target_filesystems_id):
+                    fs_name = [fs for fs in filesystems if filesystems[fs]['id'] == fs_id]
+                    if fs_name:
+                        target_filesystems[n] = fs_name[0]
+
+            self.log.debug("Converted filesystem IDs to filesystem names: %s", ', '.join(target_filesystems))
+
+        # Seek filesystems by name
+        # (perform this step even with 'byid' to identify any not found filesystem)
         try:
             fs_select = [filesystems[fs]['name'] for fs in target_filesystems]
         except KeyError as err:
@@ -341,9 +366,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
             self.log.raiseException(errmsg, KeyError)
 
-        # Convert names to IDs
-        if byid:
-            fs_select = [filesystems[fs]['id'] for fs in fs_select]
+        # Generate dict of names and IDs
+        fs_select = {fs: filesystems[fs]['id'] for fs in fs_select}
+        self.log.debug("Selected OceanStor filesystems: %s", ', '.join(fs_select))
 
         return fs_select
 
@@ -365,6 +390,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - id
         - name
         - owner
+        - parent_dir
         - security_style
         - unix_mode
         """
@@ -374,8 +400,34 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = self.list_filesystems(update=update)
             filesystemnames = list(filesystems.keys())
 
-        filter_fs = self.select_filesystems(filesystemnames, devices)
+        filter_fs = self.select_filesystems(filesystemnames, devices=devices)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ', '.join(filter_fs))
+
+        dtree_filesets = dict()
+        for fs_name in filter_fs:
+            if not update and fs_name in self.oceanstor_filesets:
+                # Use cached dtree fileset data and filter by filesystem name
+                dbg_prefix = "(cached) "
+                dtree_filesets[fs_name] = self.oceanstor_filesets[fs_name]
+            else:
+                # Request dtree filesets
+                dbg_prefix = ""
+                # query dtrees in this filesystem
+                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
+                fs_dtree = {dt['id']: dt for dt in response['data']}
+                # query parent directory of each individual fileset by ID (fsId@dtreeId)
+                for dt_id in fs_dtree:
+                    dtree_api_path = os.path.join('file_service', 'dtrees', dt_id)
+                    _, dt_response = self.session.get(url=dtree_api_path)
+                    fs_dtree[dt_id]['parent_dir'] = dt_response['data']['parent_dir']
+
+                dtree_filesets[fs_name] = fs_dtree
+
+            dt_names = [dt['name'] for dt in dtree_filesets[fs_name].values()]
+            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs_name, ', '.join(dt_names))
+
+        # Update dtree filesets in the selected filesystems
+        self.oceanstor_filesets.update(dtree_filesets)
 
         # Filter by fileset name
         if filesetnames is not None:
@@ -384,28 +436,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             self.log.debug("Filtering dtree filesets by name: %s", ', '.join(filesetnames))
 
-        if not update and self.oceanstor_filesets:
-            # Use cached dtree fileset data and filter by filesystem name
-            dbg_prefix = "(cached) "
-            dtree_filesets = {fs: self.oceanstor_filesets[fs] for fs in filter_fs}
-        else:
-            # Request dtree filesets
-            dbg_prefix = ""
-            dtree_filesets = dict()
-            for fs_name in filter_fs:
-                # query dtrees in this filesystem
-                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
-                fs_dtree = {dt['id']: dt for dt in response['data']}
-                # organize dtree filesets by filesystem name
-                dtree_filesets[fs_name] = fs_dtree
-
-            # Store all dtree filesets in the selected filesystems
-            self.oceanstor_filesets = dtree_filesets
-
-        if filesetnames:
-            # Filter by name of fileset
             # REST API does not accept multiple names in the filter of 'file_service/dtrees'
-            # Therefore, we request all entries and filter a posteriori
+            # Therefore, we filter from cached data
             for fs in dtree_filesets:
                 dtree_filesets[fs] = {
                     dt: dtree_filesets[fs][dt]
@@ -413,11 +445,156 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     if dtree_filesets[fs][dt]['name'] in filesetnames
                 }
 
-        for fs in dtree_filesets:
-            dt_names = [dtree_filesets[fs][dt]['name'] for dt in dtree_filesets[fs]]
-            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs, ', '.join(dt_names))
-
         return dtree_filesets
+
+    def list_nfs_shares(self, filesystemnames=None, update=False):
+        """
+        Get all NFS shares in given filesystems
+        Filter reported results by name of filesystem
+
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+
+        Set self.oceanstor_nfsshares as dict with
+        : keys per filesystem name and value is dict with
+        :: keys per NFS share ID and value is dict with
+        ::: keys returned by OceanStor:
+        - account_id
+        - account_name
+        - description
+        - dtree_id
+        - file_system_id
+        - id
+        - share_path
+        """
+
+        # Filter by filesystem name
+        if filesystemnames is None:
+            filesystems = self.list_filesystems(update=update)
+            filesystemnames = list(filesystems.keys())
+
+        filter_fs = self.select_filesystems(filesystemnames)
+        self.log.debug("Seeking NFS shares in filesystems: %s", ', '.join(filter_fs))
+
+        nfs_shares = dict()
+        for fs_name, fs_id in filter_fs.items():
+            if not update and fs_name in self.oceanstor_nfsshares:
+                # Use cached data
+                dbg_prefix = "(cached) "
+                nfs_shares[fs_name] = self.oceanstor_nfsshares[fs_name]
+            else:
+                # Request NFS shares
+                dbg_prefix = ""
+                filter_json = [{'fs_id': str(fs_id)}]
+                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                query_params = {
+                    'account_name': self.account,
+                    'filter': filter_json,
+                }
+                _, response = self.session.nas_protocol.nfs_share_list.get(**query_params)
+                fs_nfs_shares = {ns['id']: ns for ns in response['data']}
+                nfs_shares[fs_name] = fs_nfs_shares
+
+            nfs_desc = ["'%s'" % ns['description'] for ns in nfs_shares[fs_name].values()]
+            dbgmsg = "NFS shares in OceanStor filesystem '%s': %s"
+            self.log.debug(dbg_prefix + dbgmsg, fs_name, ', '.join(nfs_desc))
+
+        # Store all NFS shares in selected filesystems
+        self.oceanstor_nfsshares.update(nfs_shares)
+
+        return nfs_shares
+
+    def list_nfs_clients(self, nfs_share_id=None, filesystemnames=None, update=False):
+        """
+        Get NFS clients for all or certain NFS shares
+        Filter reported results by ID of NFS shares and/or name of filesystem
+
+        @type nfs_share_id: list of integers with IDs of NFS shares (if int: 1 NFS share; if None: all NFS shares)
+        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+
+        Set self.oceanstor_nfsclients as dict with
+        : keys per NFS share ID and value is dict with
+        :: keys returned by OceanStor:
+        - access_name
+        - access_value
+        - account_id
+        - account_name
+        - all_squash
+        - id
+        - root_squash
+        - secure
+        - security_type
+        - share_id
+        - sync
+        - type
+        """
+
+        # NFS shares in given filesystems
+        nfs_shares = self.list_nfs_shares(filesystemnames=filesystemnames, update=update)
+        nfs_id_pool = [nfs_shares[fs][ns]['id'] for fs in nfs_shares for ns in nfs_shares[fs]]
+
+        # Filter by NFS share ID
+        if nfs_share_id is None:
+            filter_ns = nfs_id_pool
+        else:
+            if not isinstance(nfs_share_id, list):
+                nfs_share_id = [nfs_share_id]
+            filter_ns = [str(ns) for ns in nfs_share_id if str(ns) in nfs_id_pool]
+
+        self.log.debug("Seeking NFS clients for NFS shares: %s", ', '.join(str(i) for i in filter_ns))
+
+        nfs_clients = dict()
+        for ns_id in filter_ns:
+            if not update and ns_id in self.oceanstor_nfsclients:
+                # Use cached data
+                dbg_prefix = "(cached) "
+                nfs_clients[ns_id] = self.oceanstor_nfsclients[ns_id]
+            else:
+                # Request NFS clients for this share
+                dbg_prefix = ""
+                filter_json = [{'share_id': str(ns_id)}]
+                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                query_params = {
+                    'account_name': self.account,
+                    'filter': filter_json,
+                }
+                _, response = self.session.nas_protocol.nfs_share_auth_client_list.get(**query_params)
+                share_client = {nc['id']: nc for nc in response['data']}
+                nfs_clients[ns_id] = share_client
+
+            nc_access_name = ["'%s'" % nc['access_name'] for nc in nfs_clients[ns_id].values()]
+            dbgmsg = "NFS clients for OceanStor NFS share ID '%s': %s"
+            self.log.debug(dbg_prefix + dbgmsg, ns_id, ', '.join(nc_access_name))
+
+        # Store all NFS shares in selected filesystems
+        self.oceanstor_nfsclients.update(nfs_clients)
+
+        return nfs_clients
+
+    def list_nfs_servers(self, update=False):
+        """
+        Return list of IPs in the VSC network of all servers in the OceanStor cluster
+        """
+        if not update and self.oceanstor_nfsservers:
+            return self.oceanstor_nfsservers
+
+        # Request all server IPs
+        _, response = self.session.eds_dns_service.ips.get()
+        nfs_servers = [node['ip_address'] for node in response['data'] if VSC_NETWORK_LABEL in node['iface_name']]
+        # Strip subnet bits from IP addresses
+        nfs_servers = [ip.split('/', 1)[0] for ip in nfs_servers]
+
+        # Validate IP addresses
+        comma_sep_ips = ', '.join([str(ip) for ip in nfs_servers])
+        try:
+            nfs_servers = [IPv4Address(ip) for ip in nfs_servers]
+        except AddressValueError as err:
+            errmsg = "Received malformed server IPs from OceanStor: %s" % comma_sep_ips
+            self.log.raiseException(errmsg, OceanStorOperationError)
+        else:
+            self.log.debug("NFS servers in OceanStor: %s", comma_sep_ips)
+
+        self.oceanstor_nfsservers = nfs_servers
+        return nfs_servers
 
     def _local_filesystems(self):
         """
@@ -430,38 +607,52 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.list_filesystems()
 
         # Add filesystem name in OceanStor to list of attributes of local filesystems
-        self.localfilesystemnaming.append('oceanstorfs')
+        self.localfilesystemnaming.append('oceanstor')
+
+        # NFS share paths and their IDs
+        oceanstor_shares = self.list_nfs_shares()
+        oceanstor_share_paths = {
+            os.path.normpath(nfs_share[ns]['share_path']): nfs_share[ns]['dtree_id']
+            for nfs_share in oceanstor_shares.values()
+            for ns in nfs_share
+        }
 
         for fs in self.localfilesystems:
-            fs_oceanstor_name = None
+            oceanstor_tag = None
 
             if fs[self.localfilesystemnaming.index('type')] in self.supportedfilesystems:
-                # Check NFS mount server and filesystem name
+                # Possible NFS mount from OceanStor
+                mount_point = fs[self.localfilesystemnaming.index('mountpoint')]
                 mount_device = fs[self.localfilesystemnaming.index('device')]
-                mount_ip, fs_path = mount_device.split(':', 1)
+                server_ip, share_path = mount_device.split(':', 1)
 
-                # Determine if filesystem is a known filesystem in OceanStor
-                if mount_ip in self.nfs_ips:
-                    fs_name = os.path.basename(fs_path)
-                    try:
-                        fs_oceanstor_name = self.oceanstor_filesystems[fs_name]['name']
-                    except KeyError as err:
-                        errmsg = "NFS mount '%s' served from OceanStor has an unkown filesystem '%s' to the REST API"
-                        self.log.raiseException(errmsg % (mount_device, fs_name), OceanStorOperationError)
+                # Check NFS server IP
+                server_ip = IPv4Address(server_ip)
+                oceanstor_nfs_servers = self.list_nfs_servers()
+                if any(server_ip == oceanstor_ip for oceanstor_ip in oceanstor_nfs_servers):
+                    # Check share path
+                    share_path = os.path.normpath(share_path)
+                    if share_path in oceanstor_share_paths:
+                        oceanstor_tag = oceanstor_share_paths[share_path]
+                        dbgmsg = "Local NFS mount '%s' is served by OceanStor and shares object ID: %s"
+                        self.log.debug(dbgmsg, mount_point, oceanstor_tag)
+                    else:
+                        errmsg = "NFS mount '%s' served from OceanStor '%s' shares unknown path '%s'"
+                        errmsg = errmsg % (mount_point, str(server_ip), share_path)
+                        self.log.raiseException(errmsg, OceanStorOperationError)
 
             # Add filesystem name in OceanStor to all mounts (even if None)
-            fs.append(fs_oceanstor_name)
+            fs.append(oceanstor_tag)
 
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
                      inodes_max=None, inodes_prealloc=None):
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
-        - The name of the dtree fileset and the folder where it is mounted always share the same name.
+        - All filesets in a common filesystem must have unique names (enforced by API)
+        - The name of the dtree fileset and the folder where it is mounted always share the same name
         - Dtree filesets cannot be nested (parent_fileset_name is ignored)
-        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem),
-          but this information cannot be retrieved back from the OceanStor API (list_filesets()).
-          Therefore, all filesets in a common filesystem must have unique names.
+        - Dtree filesets can be created at specific path inside the NFS mount (i.e. filesystem)
 
         @type new_fileset_path: string with the full path in the local system of the new fileset
         @type fileset_name: string with the name of the new fileset
@@ -485,7 +676,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Check existence of path in local filesystem
         if self.exists(dt_fullpath):
-            errmsg = "Path of new fileset '%s' is validated as '%s' but it already exists."
+            errmsg = "Path of new fileset in '%s' validated as '%s' but it already exists."
             self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
 
         dt_parentdir = os.path.dirname(dt_fullpath)
@@ -493,12 +684,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
             self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
 
-        # Get local mounted filesystem and remote one in OceanStor
+        # Identify local mounted filesystem
         local_fs = self.what_filesystem(dt_parentdir)
-        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
-        oceanstor_fs_name = local_fs[self.localfilesystemnaming.index('oceanstorfs')]
+
+        # Check type of OceanStor object mounted in this path
+        oceanstor_id = local_fs[self.localfilesystemnaming.index('oceanstor')]
+        oceanstor_fs_id, oceanstor_dtree_id = oceanstor_id.split('@', 1)
+        if int(oceanstor_dtree_id) == 0:
+            # This NFS mount contains a filesystem
+            oceanstor_fs_name = next(iter(self.select_filesystems(oceanstor_fs_id, byid=True)))
+            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", oceanstor_fs_name)
+        else:
+            # This NFS mount contains a dtree fileset
+            errmsg = "NFS mount '%s' is already a dtree fileset (%s). Nested dtrees are not allowed in OceanStor."
+            self.log.raiseException(errmsg % (dt_fullpath, oceanstor_id), OceanStorOperationError)
 
         # Relative path of parent directory holding the fileset
+        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
         dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
         if dt_parentdir_relative.startswith('..'):
             errmsg = "Parent directory of new fileset cannot be outside of filesystem boundaries. %s got: '%s'"
@@ -515,12 +717,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
         Create new dtree fileset in given filesystem of OceanStor
-        
+
+        - All filesets in a common filesystem must have unique names (enforced by API)
         - Dtree filesets cannot be nested
-        - Dtree filesets can be created at specific path inside the filesystem,
-          but this information cannot be retrieved back from the OceanStor API
-          (list_filesets()). Therefore, all filesets in a common filesystem must
-          have unique names.
+        - Dtree filesets can be created at specific paths inside the filesystem
 
         @type fileset_name: string with the name of the new fileset
         @type filesystem_name: string with the name of an existing filesystem
@@ -552,6 +752,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.debug("Validated name of new dtree fileset: %s", fileset_name)
 
         # Ensure absolute path for parent directory
+        # TODO: create parent directory if it does not exist
         if not os.path.isabs(parent_dir):
             parent_dir = '/' + parent_dir
 

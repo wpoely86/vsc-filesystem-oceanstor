@@ -34,14 +34,20 @@ vsc-filesystem-oceanstor base distribution setup.py
 import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ad
 
+install_requires = [
+    'vsc-filesystems',
+]
+
+if sys.version_info < (3, 3):
+    # Backport of the 3.3+ ipaddress module
+    install_requires.append('ipaddress')
+
 PACKAGE = {
-    'version': '0.3.0',
+    'version': '0.4.0',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
-    'install_requires': [
-        'vsc-filesystems',
-    ],
+    'install_requires': install_requires,
 }
 
 
