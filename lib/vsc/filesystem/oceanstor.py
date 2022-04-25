@@ -50,6 +50,13 @@ OCEANSTOR_API_PATH = ['api', 'v2']
 # REST API cannot handle white spaces between keys and values
 OCEANSTOR_JSON_SEP = (',', ':')
 
+# OceanStor quota type equivalents to GPFS
+OCEANSTOR_QUOTA_TYPE = {
+    1: 'FILESET',
+    2: 'USR',
+    3: 'GRP',
+}
+
 # Keyword identifying the VSC network zone
 VSC_NETWORK_LABEL = 'VSC'
 
@@ -73,7 +80,7 @@ class OceanStorClient(Client):
 
     def _get(self, *args, **kwargs):
         """
-        Private GET method with a copycat of Client.get()
+        Private GET method copycat of Client.get()
         """
         return super(OceanStorClient, self).get(*args, **kwargs)
 
@@ -96,8 +103,12 @@ class OceanStorClient(Client):
             'limit': 100,  # 100 is the maximum
         }
 
-        response = dict()
         status = None
+        response = {
+            'data': list(),
+            'result': dict()
+        }
+
         while pagination > 0:
             # loop over pages
             params['range'] = json.dumps(query_range, separators=OCEANSTOR_JSON_SEP)
@@ -105,7 +116,8 @@ class OceanStorClient(Client):
 
             # append page
             status = item_status
-            response.update(item_response)
+            response['result'] = item_response['result']  # only keep last result
+            response['data'].extend(item_response['data'])  # append data
 
             # update quota count and jump to next page
             page_items = len(item_response['data'])
@@ -214,6 +226,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_storagepools = dict()
         self.oceanstor_filesystems = dict()
         self.oceanstor_filesets = dict()
+        self.oceanstor_quotas = dict()
 
         self.oceanstor_nfsshares = dict()
         self.oceanstor_nfsclients = dict()
@@ -807,3 +820,92 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Rescan all filesets and force update the info
         self.list_filesets(update=True)
+
+    def list_quota(self, devices=None, update=False):
+        """
+        Get quota info for all filesystems for all quota types (USR | GRP | FILESET)
+
+        @type devices: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        (note: the name of this argument should be filesystemnames, as devices is already used for storage pools;
+        but it is kept as devices for compatibility with vsc-filesystems)
+
+        set self.oceanstor_quotas to dict with
+        : keys per filesystemName and value is dict with
+        :: keys per quotaType and value is dict with
+        ::: keys per quotaID and value is dict with
+        :::: keys returned by OceanStor:
+        - domain_type
+        - file_advisory_quota
+        - file_hard_quota
+        - file_soft_quota
+        - file_used
+        - file_used_rate
+        - id
+        - parent_id
+        - parent_type
+        - quota_type
+        - record_id
+        - resuse_name
+        - snap_modify_write_switch
+        - snap_space_rate
+        - snap_space_switch
+        - soft_grace_time
+        - space_advisory_quota
+        - space_hard_quota
+        - space_soft_quota
+        - space_unit_type
+        - space_used
+        - space_used_rate
+        - usr_grp_owner_name
+        - usr_grp_type
+        - vstore_id
+        """
+        # Filter by filesystem name (aka devices in this method)
+        if devices is None:
+            filesystems = self.list_filesystems()
+            filesystemnames = list(filesystems.keys())
+        elif isinstance(devices, str):
+            filesystemnames = [devices]
+
+        filter_fs = self.select_filesystems(filesystemnames)
+        self.log.debug("Seeking quotas in filesystems IDs: %s", ', '.join(filter_fs))
+
+        quotas = dict()
+        for fs_name, fs_id in filter_fs.items():
+            if not update and fs_name in self.oceanstor_quotas:
+                # Use cached data
+                dbg_prefix = "(cached) "
+                quotas[fs_name] = self.oceanstor_quotas[fs_name]
+            else:
+                # Request quotas for this filesystem and all its filesets
+                dbg_prefix = ""
+                fs_quotas = {qt: dict() for qt in OCEANSTOR_QUOTA_TYPE.values()}
+
+                query_params = {
+                    'parent_type': 40,
+                    'parent_id': fs_id,
+                }
+
+                # get total count of quotas
+                _, response = self.session.file_service.fs_quota_count.get(**query_params)
+                quota_count = response['data']['count']
+                self.log.debug("Quota count for OceanStor filesystem '%s': %s", fs_name, quota_count)
+                # quota queries are paginated
+                status, response = self.session.file_service.fs_quota.get(pagination=quota_count, **query_params)
+
+                if status and 'data' in response:
+                    # add each quota to its category in current filesystem
+                    for quota_obj in response['data']:
+                        quota_type = OCEANSTOR_QUOTA_TYPE[quota_obj['quota_type']]
+                        fs_quotas[quota_type].update({quota_obj['id']: quota_obj})
+
+                quotas[fs_name] = fs_quotas
+
+            quota_count = ["%s = %s" % (qt, len(quotas[fs_name][qt])) for qt in OCEANSTOR_QUOTA_TYPE.values()]
+            dbgmsg = "Quota types for OceanStor filesystem '%s': %s"
+            self.log.debug(dbg_prefix + dbgmsg, fs_name, ', '.join(quota_count))
+
+        # Store all quotas in selected filesystems
+        self.oceanstor_quotas.update(quotas)
+
+        return quotas
