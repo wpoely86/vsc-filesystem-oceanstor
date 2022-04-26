@@ -71,6 +71,49 @@ class OceanStorClient(Client):
             self.opener = build_opener(nosslHandler)
             fancylogger.getLogger().warning("Verification of SSL certificates disabled by request!")
 
+    def _get(self, *args, **kwargs):
+        """
+        Private GET method with a copycat of Client.get()
+        """
+        return super(OceanStorClient, self).get(*args, **kwargs)
+
+    def get(self, url, pagination=None, headers=None, **params):
+        """
+        HTTP GET request of all pages in the given url with given headers and parameters
+        Parameters is a dictionary that will will be urlencoded
+        Paginated requests append range offset and limit to given parameters
+
+        @type pagination: int with number of items in the url. If larger than 0,
+                          execute paginated request for all pages in the url.
+        """
+        # GET query without pagination
+        if pagination is None:
+            return self._get(url, headers=headers, **params)
+
+        # GET query with pagination
+        query_range = {
+            'offset': 0,
+            'limit': 100,  # 100 is the maximum
+        }
+
+        response = dict()
+        status = None
+        while pagination > 0:
+            # loop over pages
+            params['range'] = json.dumps(query_range, separators=OCEANSTOR_JSON_SEP)
+            item_status, item_response = self._get(url, headers=headers, **params)
+
+            # append page
+            status = item_status
+            response.update(item_response)
+
+            # update quota count and jump to next page
+            page_items = len(item_response['data'])
+            pagination -= page_items
+            query_range['offset'] += page_items
+
+        return status, response
+
     def request(self, *args, **kwargs):
         """
         Wrapper for Client.request() with HTTP error and exit code handling
