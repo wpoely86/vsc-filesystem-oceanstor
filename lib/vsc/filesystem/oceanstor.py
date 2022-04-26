@@ -187,11 +187,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Get token for this session with user/password
         self.session.client.get_x_auth_token(username, password)
 
-    @staticmethod
-    def json_separators():
-        """JSON formatting for OceanStor API"""
-        return OCEANSTOR_JSON_SEP
-
     def list_storage_pools(self, update=False):
         """
         List all storage pools (equivalent to devices in GPFS)
@@ -313,7 +308,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystems = dict()
             for sp_id in filter_sp:
                 filter_json = [{'storage_pool_id': str(sp_id)}]
-                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 _, response = self.session.file_service.file_systems.get(filter=filter_json)
                 filesystems.update({fs['name']: fs for fs in response['data']})
 
@@ -485,7 +480,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Request NFS shares
                 dbg_prefix = ""
                 filter_json = [{'fs_id': str(fs_id)}]
-                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 query_params = {
                     'account_name': self.account,
                     'filter': filter_json,
@@ -552,7 +547,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Request NFS clients for this share
                 dbg_prefix = ""
                 filter_json = [{'share_id': str(ns_id)}]
-                filter_json = json.dumps(filter_json, separators=self.json_separators())
+                filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 query_params = {
                     'account_name': self.account,
                     'filter': filter_json,
