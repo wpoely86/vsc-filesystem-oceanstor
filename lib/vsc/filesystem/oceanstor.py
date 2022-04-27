@@ -71,6 +71,19 @@ OCEANSTOR_QUOTA_UNIT_TYPE = {
     'GB': 3,
 }
 
+OCEANSTOR_QUOTA_USER_TYPE = {
+    'local_unix_user': 1,
+    'local_unix_group': 2,
+    'domain_user': 3,
+    'domain_group': 4,
+}
+
+OCEANSTOR_QUOTA_DOMAIN_TYPE = {
+    'AD': 1,
+    'LDAP': 2,
+    'NIS': 3,
+}
+
 # Soft quota to hard quota factor
 OCEANSTOR_QUOTA_FACTOR = 1.05
 
@@ -967,16 +980,20 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         return quotas
 
     def _get_quota(self, who, obj, typ='user'):
-        """Get quota of a given object.
+        """
+        Get quota information of a given local object.
+        Return:
+        - ID of corresponding object in OceanStor (filesystem/dtree)
+        - list of quota IDs attached to it
 
         @type who: identifier (UID/GID)
         @type obj: local path with quota attribute
-        @type typ: string representing the type of object to set quota for: user, fileset or group.
+        @type typ: string with type of quota: fileset, user or group
         """
 
         quota_path = self._sanity_check(obj)
         if not self.dry_run and not self.exists(quota_path):
-            errmsg = "getQuota: can't set quota on non-existing path '%s'" % quota_path
+            errmsg = "getQuota: can't get quota on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         if typ not in OCEANSTOR_QUOTA_TYPE:
@@ -985,6 +1002,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Identify OceanStor object in path
         ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_path = self._identify_local_path(quota_path)
+        ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
 
         if ostor_path == '/':
             # Target path is already an NFS mount
@@ -1003,11 +1021,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
 
             # Find a fileset in the filesystem with the corresponding parent directory
-            ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
-            self.log.debug("getQuota: NFS mount '%s' contains OceanStor filesystem '%s'", ostor_mount, ostor_fs_name)
-
             fs_filesets = self.list_filesets(filesystemnames=ostor_fs_name)
-
             fileset_parent, fileset_name = os.path.split(ostor_path)
             fileset = [
                 fs['id']
@@ -1040,4 +1054,132 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
             self.log.debug(dbgmsg, parent_id, who, ', '.join(attached_quotas))
 
-        return tuple(attached_quotas.keys())
+        return parent_id, tuple(attached_quotas.keys())
+
+    def _set_quota(self, who, obj, typ='user', **kwargs):
+        """
+        Set quota on a given local object.
+
+        @type who: identifier (UID/GID)
+        @type obj: local path
+        @type typ: string with type of quota: fileset, user or group
+        """
+
+        quota_path = self._sanity_check(obj)
+        if not self.dry_run and not self.exists(quota_path):
+            errmsg = "setQuota: can't set quota on non-existing path '%s'" % quota_path
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        if typ not in OCEANSTOR_QUOTA_TYPE:
+            errmsg = "setQuota: unknown quota type '%s'" % typ
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # Check existing quotas on local object
+        quota_parent, quotas = self._get_quota(who, obj, typ)
+
+        if quotas:
+            # local path already has quotas of given type
+            for quota_id in quotas:
+                self.log.debug("Sending request to update quota with ID: %s", quota_id)
+                self._change_quota_api(quota_id, **kwargs)
+        else:
+            # create new quota of given type
+            self.log.debug("Sending request to create new quota for object ID: %s", quota_parent)
+            self._new_quota_api(quota_parent, typ=typ, who=who, **kwargs)
+
+        # Update quotas in this filesystem
+        ostor_fs_id = quota_parent.split('@', 1)[0]
+        ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
+        self.list_quota(devices=ostor_fs_name, update=True)
+
+    def _change_quota_api(self, quota_id, **kwargs):
+        """
+        Modify existing quota in OceanStor
+
+        @type quota_id: ID of existing quota
+        """
+        query_params = self._parse_quota_limits(**kwargs)
+
+        # Modify existing quota
+        query_params['id'] = quota_id
+        _, response = self.session.file_service.fs_quota.put(body=query_params)
+        self.log.info("Quota '%s' updated succesfully")
+
+    def _new_quota_api(self, quota_parent, typ='user', who=None, **kwargs):
+        """
+        Create new quota of given object in OceanStor
+
+        @type quota_parent: ID of parent object holding the quota
+        @type typ: string with type of quota: fileset, user or group
+        @type who: identifier (UID/GID)
+        """
+        query_params = self._parse_quota_limits(**kwargs)
+
+        # Type of parent object
+        id_type = len([c for c in quota_parent if c == '@'])
+        parent_type = 'filesystem' if id_type == 0 else 'dtree'
+        self.log.debug("Quota parent object '%s' determined to be '%s'", quota_parent, parent_type)
+
+        # Create new quota
+        query_params['parent_id'] = quota_parent
+        query_params['parent_type'] = OCEANSTOR_QUOTA_PARENT_TYPE[parent_type]
+        query_params['quota_type'] = OCEANSTOR_QUOTA_TYPE[typ]
+
+        if typ in ['user', 'group'] and who:
+            # settings for user/group quotas
+            usr_grp_type = "domain_%s" % typ
+            query_params['usr_grp_owner_name'] = str(who)
+            query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
+            query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
+        elif parent_type == 'filesystem':
+            # directory quotas on filesystems need the following undocumented setting
+            query_params['directory_quota_target'] = 1
+
+        _, response = self.session.file_service.fs_quota.post(body=query_params)
+        new_quota_id = response['data']['id']
+        self.log.info("Quota '%s' created succesfully", new_quota_id)
+
+    def _parse_quota_limits(self, soft=None, hard=None, inode_soft=None, inode_hard=None):
+        """
+        Parse quota limits and generate corresponding query parameters
+
+        @type soft: integer representing the soft limit expressed in bytes
+        @type hard: integer representing the hard limit expressed in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
+        @type inode_soft: integer representing the soft inodes quota
+        @type inode_hard: integer representing the hard inodes quota. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        """
+
+        if soft is None and inode_soft is None:
+            errmsg = "setQuota: At least one type of quota (block or inode) should be specified"
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        query_params = {
+            'space_unit_type': OCEANSTOR_QUOTA_UNIT_TYPE['B']  # bytes
+        }
+
+        if soft:
+            # Set space quota
+            if hard is None:
+                hard = int(soft * OCEANSTOR_QUOTA_FACTOR)
+            elif hard < soft:
+                errmsg = "setQuota: can't set a hard limit %s lower than soft limit %s"
+                self.log.raiseException(errmsg % (hard, soft), OceanStorOperationError)
+
+            # Space quota limits
+            query_params['space_soft_quota'] = soft
+            query_params['space_hard_quota'] = hard
+
+        if inode_soft:
+            # Set inodes quota
+            if inode_hard is None:
+                inode_hard = int(inode_soft * OCEANSTOR_QUOTA_FACTOR)
+            elif inode_hard < inode_soft:
+                errmsg = "setQuota: can't set hard inode limit %s lower than soft inode limit %s"
+                self.log.raiseException(errmsg % (inode_hard, inode_soft), OceanStorOperationError)
+
+            # Inodes quota limits
+            query_params['file_soft_quota'] = inode_soft
+            query_params['file_hard_quota'] = inode_hard
+
+        return query_params
+
