@@ -43,7 +43,7 @@ if sys.version_info < (3, 3):
     install_requires.append('ipaddress')
 
 PACKAGE = {
-    'version': '0.4.0',
+    'version': '0.5.0',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
