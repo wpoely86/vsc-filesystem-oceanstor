@@ -38,6 +38,7 @@ import re
 import ssl
 
 from ipaddress import IPv4Address, AddressValueError
+from socket import gethostbyname
 
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
@@ -675,10 +676,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Possible NFS mount from OceanStor
                 mount_point = fs[self.localfilesystemnaming.index('mountpoint')]
                 mount_device = fs[self.localfilesystemnaming.index('device')]
-                server_ip, share_path = mount_device.split(':', 1)
+                server_address, share_path = mount_device.split(':', 1)
 
                 # Check NFS server IP
-                server_ip = IPv4Address(server_ip)
+                try:
+                    server_ip = IPv4Address(gethostbyname(server_address))
+                except AddressValueError as err:
+                    errmsg = "Error converting address of NFS server to an IPv4: %s" % server_address
+                    self.log.raiseException(errmsg, OceanStorOperationError)
+
                 oceanstor_nfs_servers = self.list_nfs_servers()
                 if any(server_ip == oceanstor_ip for oceanstor_ip in oceanstor_nfs_servers):
                     # Check share path
