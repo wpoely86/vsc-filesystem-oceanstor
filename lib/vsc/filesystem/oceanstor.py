@@ -1248,3 +1248,79 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return query_params
 
+    def set_user_grace(self, obj, grace=0):
+        """
+        Set the grace period for user quota.
+
+        @type obj: string with local path
+        @type grace: grace period in seconds
+        """
+        self._set_grace(obj, 'user', grace)
+
+    def set_group_grace(self, obj, grace=0):
+        """
+        Set the grace period for group quota.
+
+        @type obj: string with local path
+        @type grace: grace period in seconds
+        """
+        self._set_grace(obj, 'group', grace)
+
+    def set_fileset_grace(self, obj, grace=0):
+        """
+        Set the grace period for directory quota.
+
+        @type obj: string with local path
+        @type grace: grace period in seconds
+        """
+        self._set_grace(obj, 'fileset', grace)
+
+    def _set_grace(self, obj, typ, grace=0):
+        """Set the grace period for a given type of objects
+
+        @type obj: the path
+        @type typ: string with type of quota: fileset, user or group
+        @type grace: int with grace period in seconds
+        """
+
+        quota_path = self._sanity_check(obj)
+        if not self.dry_run and not self.exists(quota_path):
+            errmsg = "setGrace: can't set grace on non-existing path '%s'" % quota_path
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        if typ not in OCEANSTOR_QUOTA_TYPE:
+            errmsg = "setGrace: unknown quota type '%s'" % typ
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # Find all existing quotas attached to local object
+        quota_parent, quotas = self._get_quota(None, obj, typ)
+
+        if not quotas:
+            errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # Set grace period
+        grace_days = int(round(grace / (24 * 3600)))
+        for quota_id in quotas:
+            self.log.debug("Sending request to set grace of quota with ID: %s", quota_id)
+            self._set_grace_api(quota_id, grace_days)
+
+        # Update quota list from this filesystem
+        ostor_fs_id = quota_parent.split('@', 1)[0]
+        ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
+        self.list_quota(devices=ostor_fs_name, update=True)
+
+    def _set_grace_api(self, quota_id, grace):
+        """
+        Set grace period in existing quota in OceanStor
+
+        @type quota_id: ID of existing quota
+        @type grace: int with grace period in days
+        """
+        # Modify existing quota
+        query_params = {
+            'id': quota_id,
+            'soft_grace_time': grace,
+        }
+        _, response = self.session.file_service.fs_quota.put(body=query_params)
+        self.log.info("Grace period of quota '%s' updated succesfully: %s days", grace)
