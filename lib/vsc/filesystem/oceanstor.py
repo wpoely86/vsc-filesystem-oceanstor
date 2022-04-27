@@ -997,7 +997,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - ID of corresponding object in OceanStor (filesystem/dtree)
         - list of quota IDs attached to it
 
-        @type who: identifier (UID/GID)
+        @type who: identifier (UID/GID/None)
         @type obj: local path with quota attribute
         @type typ: string with type of quota: fileset, user or group
         """
@@ -1060,7 +1060,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.log.debug(dbgmsg, parent_id, ', '.join(attached_quotas))
 
         # Filter user/group quotas by given uid/gid
-        if typ in ['user', 'group']:
+        if typ in ['user', 'group'] and who is not None:
             attached_quotas = {fq['id']: fq for fq in attached_quotas.values() if fq['usr_grp_owner_name'] == str(who)}
             dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
             self.log.debug(dbgmsg, parent_id, who, ', '.join(attached_quotas))
@@ -1074,9 +1074,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type soft: integer with soft limit in bytes
         @type user: string identifying the user
         @type obj: string with local path
-        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
@@ -1088,9 +1088,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type soft: integer with soft limit in bytes
         @type group: string identifying the group
         @type obj: string with local path
-        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=group, obj=obj, typ='group', **quota_limits)
@@ -1102,9 +1102,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type soft: integer with soft limit in bytes
         @type fileset_path: the local path to the fileset or filesystem
         @type fileset_name: IGNORED (fileset_name is determined from fileset_path)
-        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
 
         fileset_path = self._sanity_check(fileset_path)
@@ -1147,7 +1147,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.debug("Sending request to create new quota for object ID: %s", quota_parent)
             self._new_quota_api(quota_parent, typ=typ, who=who, **kwargs)
 
-        # Update quotas in this filesystem
+        # Update quota list from this filesystem
         ostor_fs_id = quota_parent.split('@', 1)[0]
         ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
         self.list_quota(devices=ostor_fs_name, update=True)
@@ -1185,14 +1185,19 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         query_params['parent_type'] = OCEANSTOR_QUOTA_PARENT_TYPE[parent_type]
         query_params['quota_type'] = OCEANSTOR_QUOTA_TYPE[typ]
 
-        if typ in ['user', 'group'] and who:
+        if typ in ['user', 'group']:
             # settings for user/group quotas
-            usr_grp_type = "domain_%s" % typ
+            if who is None:
+                errmsg = "Cannot ser user/group quota on '%s', account information missing."
+                self.log.raiseException(errmsg % quota_parent, OceanStorOperationError)
+
             query_params['usr_grp_owner_name'] = str(who)
+            usr_grp_type = "domain_%s" % typ
             query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
             query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
+
         elif parent_type == 'filesystem':
-            # directory quotas on filesystems need the following undocumented setting
+            # directory quotas target dtrees (0) by default, switch to filesystems (1)
             query_params['directory_quota_target'] = 1
 
         _, response = self.session.file_service.fs_quota.post(body=query_params)
@@ -1203,10 +1208,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Parse quota limits and generate corresponding query parameters
 
-        @type soft: integer representing the soft limit expressed in bytes
-        @type hard: integer representing the hard limit expressed in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
-        @type inode_soft: integer representing the soft inodes quota
-        @type inode_hard: integer representing the hard inodes quota. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type soft: integer with soft limit in bytes.
+        @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
+        @type inode_soft: integer with soft limit on files.
+        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
 
         if soft is None and inode_soft is None:
