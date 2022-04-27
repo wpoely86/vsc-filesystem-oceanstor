@@ -1056,11 +1056,60 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return parent_id, tuple(attached_quotas.keys())
 
+    def set_user_quota(self, soft, user, obj=None, hard=None, inode_soft=None, inode_hard=None):
+        """
+        Set quota for a user on a given object (i.e. local path)
+
+        @type soft: integer with soft limit in bytes
+        @type user: string identifying the user
+        @type obj: string with local path
+        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type inode_soft: integer with soft limit on files.
+        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        """
+        quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
+        self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
+
+    def set_group_quota(self, soft, group, obj=None, hard=None, inode_soft=None, inode_hard=None):
+        """
+        Set quota for a group on a given object (i.e. local path)
+
+        @type soft: integer with soft limit in bytes
+        @type group: string identifying the group
+        @type obj: string with local path
+        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type inode_soft: integer with soft limit on files.
+        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        """
+        quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
+        self._set_quota(who=group, obj=obj, typ='group', **quota_limits)
+
+    def set_fileset_quota(self, soft, fileset_path, fileset_name=None, hard=None, inode_soft=None, inode_hard=None):
+        """
+        Set directory quota on filesets or filesystems.
+
+        @type soft: integer with soft limit in bytes
+        @type fileset_path: the local path to the fileset or filesystem
+        @type fileset_name: IGNORED (fileset_name is determined from fileset_path)
+        @type hard: integer with hard limit in bytes. If None, then OCEANSTOR_QUOTA_FACTOR * soft.
+        @type inode_soft: integer with soft limit on files.
+        @type inode_soft: integer with hard limit on files. If None, then OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        """
+
+        fileset_path = self._sanity_check(fileset_path)
+        if fileset_name is not None:
+            infomsg = "Fileset name '%s' will be ignored. Setting fileset quota based on path: %s"
+            self.log.info(infomsg, fileset_name, fileset_path)
+            fileset_name = None
+
+        quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
+        self._set_quota(who=fileset_name, obj=fileset_path, typ='fileset', **quota_limits)
+
     def _set_quota(self, who, obj, typ='user', **kwargs):
         """
         Set quota on a given local object.
 
-        @type who: identifier (UID/GID)
+        @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         @type obj: local path
         @type typ: string with type of quota: fileset, user or group
         """
@@ -1111,7 +1160,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type quota_parent: ID of parent object holding the quota
         @type typ: string with type of quota: fileset, user or group
-        @type who: identifier (UID/GID)
+        @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
         query_params = self._parse_quota_limits(**kwargs)
 
