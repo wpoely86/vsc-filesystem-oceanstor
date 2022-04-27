@@ -121,10 +121,7 @@ class OceanStorClient(Client):
         }
 
         status = None
-        response = {
-            'data': list(),
-            'result': dict()
-        }
+        response = {'data': list(), 'result': dict()}
 
         while pagination > 0:
             # loop over pages
@@ -968,3 +965,79 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_quotas.update(quotas)
 
         return quotas
+
+    def _get_quota(self, who, obj, typ='user'):
+        """Get quota of a given object.
+
+        @type who: identifier (UID/GID)
+        @type obj: local path with quota attribute
+        @type typ: string representing the type of object to set quota for: user, fileset or group.
+        """
+
+        quota_path = self._sanity_check(obj)
+        if not self.dry_run and not self.exists(quota_path):
+            errmsg = "getQuota: can't set quota on non-existing path '%s'" % quota_path
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        if typ not in OCEANSTOR_QUOTA_TYPE:
+            errmsg = "getQuota: unknown quota type '%s'" % typ
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # Identify OceanStor object in path
+        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_path = self._identify_local_path(quota_path)
+
+        if ostor_path == '/':
+            # Target path is already an NFS mount
+            if int(ostor_dtree_id) == 0:
+                # mount point is a filesystem
+                parent_id = ostor_fs_id
+            else:
+                # mount point is a dtree fileset
+                parent_id = '%s@%s' % (ostor_fs_id, ostor_dtree_id)
+            self.log.debug("getQuota: quota path is root of NFS mount for OceanStor object: %s", parent_id)
+        else:
+            # Target path can be a fileset in a mounted filesystem
+            if int(ostor_dtree_id) > 0:
+                errmsg = ("getQuota: quota path '%s' is in a fileset '%s', but it cannot be a fileset on its own"
+                          "(OceanStor does not support nested filesets)")
+                self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
+
+            # Find a fileset in the filesystem with the corresponding parent directory
+            ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
+            self.log.debug("getQuota: NFS mount '%s' contains OceanStor filesystem '%s'", ostor_mount, ostor_fs_name)
+
+            fs_filesets = self.list_filesets(filesystemnames=ostor_fs_name)
+
+            fileset_parent, fileset_name = os.path.split(ostor_path)
+            fileset = [
+                fs['id']
+                for fs in fs_filesets[ostor_fs_name].values()
+                if fs['name'] == fileset_name and fs['parent_dir'] == fileset_parent
+            ]
+
+            if len(fileset) == 1:
+                parent_id = fileset[0]
+                dbgmsg = "getQuota: quota path '%s' is fileset '%s' in OceanStor filesystem '%s'"
+                self.log.debug(dbgmsg, quota_path, parent_id, ostor_mount)
+            elif len(fileset) > 1:
+                errmsg = "getQuota: found multiple filesets mathing quota path '%s' in OceanStor filesystem '%s': %s"
+                self.log.raiseException(errmsg % (quota_path, ostor_mount, ','.join(fileset)), OceanStorOperationError)
+            else:
+                errmsg = "getQuota: could not find any fileset matching quota path '%s' in OceanStor filesystem '%s'"
+                self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
+
+        # Find quotas attached to parent object
+        fs_quotas = self.list_quota(devices=ostor_fs_name)
+        typ_quotas = fs_quotas[ostor_fs_name][typ]
+        attached_quotas = {fq['id']: fq for fq in typ_quotas.values() if fq['parent_id'] == parent_id}
+
+        dbgmsg = "getQuota: quotas attached to parent ID '%s': %s"
+        self.log.debug(dbgmsg, parent_id, ', '.join(attached_quotas))
+
+        # Filter user/group quotas by given uid/gid
+        if typ in ['user', 'group']:
+            attached_quotas = {fq['id']: fq for fq in attached_quotas.values() if fq['usr_grp_owner_name'] == str(who)}
+            dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
+            self.log.debug(dbgmsg, parent_id, who, ', '.join(attached_quotas))
+
+        return tuple(attached_quotas.keys())
