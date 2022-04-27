@@ -717,6 +717,52 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # Add filesystem name in OceanStor to all mounts (even if None)
             fs.append(oceanstor_tag)
 
+    def _identify_local_path(self, local_path):
+        """
+        Identify the filesystem/dtree ID in OceanStor of a given directory path
+        Return IDs, mount point and relative path of object in OceanStor
+
+        @type local_path: string with directory path
+        """
+
+        # Sanity checks of local path
+        if not self.exists(local_path):
+            errmsg = "Path '%s' does not exist in local system."
+            self.log.raiseException(errmsg % local_path, OceanStorOperationError)
+
+        if not os.path.isdir(local_path):
+            errmsg = "Path '%s' is not a directory. Cannot identify OceanStor object."
+            self.log.raiseException(errmsg % local_path, OceanStorOperationError)
+
+        # Identify local mounted filesystem
+        local_fs = self.what_filesystem(local_path)
+
+        # Check NFS mount source
+        oceanstor_id = local_fs[self.localfilesystemnaming.index('oceanstor')]
+        if oceanstor_id is None:
+            errmsg = "NFS mount of '%s' is not from OceanStor" % local_path
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # OceanStor IDs
+        oceanstor_fs_id, oceanstor_dtree_id = oceanstor_id.split('@', 1)
+
+        # Relative path to mount root
+        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
+        local_path_relative = os.path.relpath(local_path, start=local_mount)
+        if local_path_relative.startswith('..'):
+            errmsg = "Local path '%s' was resolved outside mountpoint boundaries '%s'"
+            self.log.raiseException(errmsg % (local_path_relative, local_mount), OceanStorOperationError)
+        elif local_path_relative == '.':
+            local_path_relative = ''
+
+        oceanstor_path = '/' + local_path_relative
+
+        dbgmsg = "Path '%s' identified in OceanStor as object ID '%s' with relative path '%s'"
+        self.log.debug(dbgmsg, local_path, oceanstor_id, oceanstor_path)
+
+        return (oceanstor_fs_id, oceanstor_dtree_id, local_mount, oceanstor_path)
+
+
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
                      inodes_max=None, inodes_prealloc=None):
         """
@@ -758,34 +804,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
 
         # Identify local mounted filesystem
-        local_fs = self.what_filesystem(dt_parentdir)
+        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dt_parentdir)
 
         # Check type of OceanStor object mounted in this path
-        oceanstor_id = local_fs[self.localfilesystemnaming.index('oceanstor')]
-        oceanstor_fs_id, oceanstor_dtree_id = oceanstor_id.split('@', 1)
-        if int(oceanstor_dtree_id) == 0:
-            # This NFS mount contains a filesystem
-            oceanstor_fs_name = next(iter(self.select_filesystems(oceanstor_fs_id, byid=True)))
-            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", oceanstor_fs_name)
+        if int(ostor_dtree_id) == 0:
+            # this NFS mount contains a filesystem
+            ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
+            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dt_fullpath, ostor_fs_name)
         else:
-            # This NFS mount contains a dtree fileset
-            errmsg = "NFS mount '%s' is already a dtree fileset (%s). Nested dtrees are not allowed in OceanStor."
-            self.log.raiseException(errmsg % (dt_fullpath, oceanstor_id), OceanStorOperationError)
-
-        # Relative path of parent directory holding the fileset
-        local_mount = local_fs[self.localfilesystemnaming.index('mountpoint')]
-        dt_parentdir_relative = os.path.relpath(dt_parentdir, start=local_mount)
-        if dt_parentdir_relative.startswith('..'):
-            errmsg = "Parent directory of new fileset cannot be outside of filesystem boundaries. %s got: '%s'"
-            self.log.raiseException(errmsg % (fileset_name, dt_parentdir_relative), OceanStorOperationError)
-        elif dt_parentdir_relative == '.':
-            dt_parentdir_relative = ''
-
-        oceanstor_parentdir = '/' + dt_parentdir_relative
-        self.log.debug("Creating new dtree fileset with parent directory: '%s'", oceanstor_parentdir)
+            # this NFS mount contains a dtree fileset
+            errmsg = "NFS mount '%s' is already a dtree fileset (%s@%s). Nested dtrees are not allowed in OceanStor."
+            self.log.raiseException(errmsg % (dt_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
 
         # Send API request to create the new dtree fileset
-        self.make_fileset_api(fileset_name, oceanstor_fs_name, parent_dir=oceanstor_parentdir)
+        dbgmsg = "Sending request for new dtree fileset '%s' in OceanStor filesystem '%s' with parent directory '%s'"
+        self.log.debug(dbgmsg, fileset_name, ostor_fs_name, ostor_parentdir)
+
+        self.make_fileset_api(fileset_name, ostor_fs_name, parent_dir=ostor_parentdir)
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
