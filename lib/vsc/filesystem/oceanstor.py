@@ -36,6 +36,7 @@ import json
 import os
 import re
 import ssl
+import time
 
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
@@ -86,6 +87,9 @@ OCEANSTOR_QUOTA_DOMAIN_TYPE = {
 
 # Soft quota to hard quota factor
 OCEANSTOR_QUOTA_FACTOR = 1.05
+
+# NFS lookup cache lifetime in seconds
+NFS_LOOKUP_CACHE_TIME = 60
 
 # Keyword identifying the VSC network zone
 VSC_NETWORK_LABEL = 'VSC'
@@ -774,7 +778,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
 
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
-                     inodes_max=None, inodes_prealloc=None):
+                     inodes_max=1048576, inodes_prealloc=None):
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
@@ -786,12 +790,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type new_fileset_path: string with the full path in the local system of the new fileset
         @type fileset_name: string with the name of the new fileset
                             (if not None, fileset_name is appended to new_fileset_path)
+        @type inodes_max: int with initial limit of inodes for this fileset
         """
         # Unsupported features
-        del parent_fileset_name
         del afm
-        del inodes_max
         del inodes_prealloc
+        del parent_fileset_name
 
         dt_fullpath = self._sanity_check(new_fileset_path)
 
@@ -831,6 +835,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.log.debug(dbgmsg, fileset_name, ostor_fs_name, ostor_parentdir)
 
         self.make_fileset_api(fileset_name, ostor_fs_name, parent_dir=ostor_parentdir)
+
+        # wait for NFS lookup cache to expire to be able to access new fileset
+        time.sleep(NFS_LOOKUP_CACHE_TIME)
+
+        # Set initial quotas: 1MB for blocks soft limit and inodes_max for inodes soft limit
+        block_soft = 1048576  # bytes
+        self.set_fileset_quota(block_soft, dt_fullpath, inode_soft=inodes_max)
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
