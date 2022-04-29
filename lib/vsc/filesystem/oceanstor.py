@@ -112,12 +112,6 @@ class OceanStorClient(Client):
             self.opener = build_opener(nosslHandler)
             fancylogger.getLogger().warning("Verification of SSL certificates disabled by request!")
 
-    def _get(self, *args, **kwargs):
-        """
-        Private GET method copycat of Client.get()
-        """
-        return super(OceanStorClient, self).get(*args, **kwargs)
-
     def get(self, url, pagination=None, headers=None, **params):
         """
         HTTP GET request of all pages in the given url with given headers and parameters
@@ -129,7 +123,7 @@ class OceanStorClient(Client):
         """
         # GET query without pagination
         if pagination is None:
-            return self._get(url, headers=headers, **params)
+            return super(OceanStorClient, self).get(url, headers=headers, **params)
 
         # GET query with pagination
         query_range = {
@@ -143,7 +137,7 @@ class OceanStorClient(Client):
         while pagination > 0:
             # loop over pages
             params['range'] = json.dumps(query_range, separators=OCEANSTOR_JSON_SEP)
-            item_status, item_response = self._get(url, headers=headers, **params)
+            item_status, item_response = super(OceanStorClient, self).get(url, headers=headers, **params)
 
             # append page
             status = item_status
