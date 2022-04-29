@@ -778,7 +778,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
 
     def make_fileset(self, new_fileset_path, fileset_name=None, parent_fileset_name=None, afm=None,
-                     inodes_max=1048576, inodes_prealloc=None):
+                     inodes_max=1048576, inodes_prealloc=None, nfs_cache=False):
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
@@ -791,6 +791,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type fileset_name: string with the name of the new fileset
                             (if not None, fileset_name is appended to new_fileset_path)
         @type inodes_max: int with initial limit of inodes for this fileset
+        @type nfs_cache: bool enabling wait time to deal with NFS lookup cache
         """
         # Unsupported features
         del afm
@@ -836,8 +837,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.make_fileset_api(fileset_name, ostor_fs_name, parent_dir=ostor_parentdir)
 
-        # wait for NFS lookup cache to expire to be able to access new fileset
-        time.sleep(NFS_LOOKUP_CACHE_TIME)
+        if nfs_cache:
+            # wait for NFS lookup cache to expire to be able to access new fileset
+            time.sleep(NFS_LOOKUP_CACHE_TIME)
 
         # Set initial quotas: 1MB for blocks soft limit and inodes_max for inodes soft limit
         block_soft = 1048576  # bytes
