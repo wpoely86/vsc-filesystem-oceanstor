@@ -31,6 +31,8 @@ vsc-filesystem-oceanstor base distribution setup.py
 @author: Alex Domingo (Vrije Universiteit Brussel)
 """
 
+import sys
+
 import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ad
 
@@ -43,7 +45,7 @@ if sys.version_info < (3, 3):
     install_requires.append('ipaddress')
 
 PACKAGE = {
-    'version': '0.4.0',
+    'version': '0.5.0',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
