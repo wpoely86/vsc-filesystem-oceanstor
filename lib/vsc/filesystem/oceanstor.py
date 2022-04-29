@@ -112,17 +112,16 @@ class OceanStorClient(Client):
             self.opener = build_opener(nosslHandler)
             fancylogger.getLogger().warning("Verification of SSL certificates disabled by request!")
 
-    def get(self, url, pagination=None, headers=None, **params):
+    def get(self, url, pagination=False, headers=None, **params):
         """
         HTTP GET request of all pages in the given url with given headers and parameters
-        Parameters is a dictionary that will will be urlencoded
+        Parameters is a dictionary that will be urlencoded
         Paginated requests append range offset and limit to given parameters
 
-        @type pagination: int with number of items in the url. If larger than 0,
-                          execute paginated request for all pages in the url.
+        @type pagination: bool to enable paginated queries
         """
         # GET query without pagination
-        if pagination is None:
+        if pagination is False:
             return super(OceanStorClient, self).get(url, headers=headers, **params)
 
         # GET query with pagination
@@ -133,8 +132,9 @@ class OceanStorClient(Client):
 
         status = None
         response = {'data': list(), 'result': dict()}
+        page_items = query_range['limit']
 
-        while pagination > 0:
+        while page_items == query_range['limit']:
             # loop over pages
             params['range'] = json.dumps(query_range, separators=OCEANSTOR_JSON_SEP)
             item_status, item_response = super(OceanStorClient, self).get(url, headers=headers, **params)
@@ -144,10 +144,10 @@ class OceanStorClient(Client):
             response['result'] = item_response['result']  # only keep last result
             response['data'].extend(item_response['data'])  # append data
 
-            # update quota count and jump to next page
+            # update item count and jump to next page
             page_items = len(item_response['data'])
-            pagination -= page_items
             query_range['offset'] += page_items
+            fancylogger.getLogger().debug("Items in response of paginated GET query: %s", page_items)
 
         return status, response
 
@@ -960,14 +960,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     'parent_id': fs_id,
                 }
 
-                # get total count of quotas
-                _, response = self.session.file_service.fs_quota_count.get(**query_params)
-                quota_count = response['data']['count']
-                self.log.debug("Quota count for OceanStor filesystem '%s': %s", fs_name, quota_count)
-
                 # quota queries are paginated
                 query_params['space_unit_type'] = OCEANSTOR_QUOTA_UNIT_TYPE['B']  # bytes
-                status, response = self.session.file_service.fs_quota.get(pagination=quota_count, **query_params)
+                status, response = self.session.file_service.fs_quota.get(pagination=True, **query_params)
 
                 if status and 'data' in response:
                     # add each quota to its category in current filesystem
