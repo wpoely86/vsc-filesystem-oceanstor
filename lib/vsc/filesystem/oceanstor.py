@@ -834,38 +834,37 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         del inodes_prealloc
         del parent_fileset_name
 
-        dt_fullpath = self._sanity_check(new_fileset_path)
+        dtree_fullpath = self._sanity_check(new_fileset_path)
+        dtree_name = os.path.basename(dtree_fullpath)
 
-        if fileset_name is None:
-            # Use name of last folder as name of dtree fileset in OceanStor
-            fileset_name = os.path.basename(dt_fullpath)
-        else:
+        if fileset_name is not None and fileset_name != dtree_name:
             # Append the fileset name to the given path
-            dt_fullpath = os.path.join(dt_fullpath, fileset_name)
-            dt_fullpath = self._sanity_check(dt_fullpath)
+            dtree_fullpath = os.path.join(dtree_fullpath, fileset_name)
+            dtree_fullpath = self._sanity_check(dtree_fullpath)
+            dtree_name = fileset_name
 
         # Check existence of path in local filesystem
-        if self.exists(dt_fullpath):
+        if self.exists(dtree_fullpath):
             errmsg = "Path of new fileset in '%s' validated as '%s' but it already exists."
-            self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
+            self.log.raiseException(errmsg % (new_fileset_path, dtree_fullpath), OceanStorOperationError)
 
-        dt_parentdir = os.path.dirname(dt_fullpath)
-        if not self.exists(dt_parentdir):
+        dtree_parentdir = os.path.dirname(dtree_fullpath)
+        if not self.exists(dtree_parentdir):
             errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
-            self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
+            self.log.raiseException(errmsg % (dtree_parentdir, dtree_fullpath), OceanStorOperationError)
 
         # Identify local mounted filesystem
-        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dt_parentdir)
+        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dtree_parentdir)
 
         # Check type of OceanStor object mounted in this path
         if int(ostor_dtree_id) == 0:
             # this NFS mount contains a filesystem
             ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
-            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dt_fullpath, ostor_fs_name)
+            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dtree_fullpath, ostor_fs_name)
         else:
             # this NFS mount contains a dtree fileset
             errmsg = "NFS mount '%s' is already a dtree fileset (%s@%s). Nested dtrees are not allowed in OceanStor."
-            self.log.raiseException(errmsg % (dt_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
+            self.log.raiseException(errmsg % (dtree_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
 
         # Send API request to create the new dtree fileset
         dbgmsg = "Sending request for new dtree fileset '%s' in OceanStor filesystem '%s' with parent directory '%s'"
@@ -879,7 +878,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Set initial quotas: 1MB for blocks soft limit and inodes_max for inodes soft limit
         block_soft = 1048576  # bytes
-        self.set_fileset_quota(block_soft, dt_fullpath, inode_soft=inodes_max)
+        self.set_fileset_quota(block_soft, dtree_fullpath, inode_soft=inodes_max)
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
