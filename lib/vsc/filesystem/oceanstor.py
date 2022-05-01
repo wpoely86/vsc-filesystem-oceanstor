@@ -880,6 +880,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         block_soft = 1048576  # bytes
         self.set_fileset_quota(block_soft, dtree_fullpath, inode_soft=inodes_max)
 
+        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes soft limit
+        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        block_soft = 1048576  # bytes
+        self.set_user_quota(block_soft, '*', obj=dtree_fullpath, inode_soft=inodes_max)
+
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
         Create new dtree fileset in given filesystem of OceanStor
@@ -1093,6 +1098,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Filter user/group quotas by given uid/gid
         if typ in ['user', 'group'] and who is not None:
+            if who == '*':
+                who = 'All User'  # special case: default quota '*' registers as 'All User'
+
             attached_quotas = {fq['id']: fq for fq in attached_quotas.values() if fq['usr_grp_owner_name'] == str(who)}
             dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
             self.log.debug(dbgmsg, parent_id, who, ', '.join(attached_quotas))
@@ -1110,6 +1118,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # Always set default user quotas for all users, instead of quotas specific to each user
+        # OceanStor does not yet support setting new user quotas on non-empty filesets
+        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        user = '*'
+
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
 
@@ -1224,9 +1237,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 self.log.raiseException(errmsg % quota_parent, OceanStorOperationError)
 
             query_params['usr_grp_owner_name'] = str(who)
-            usr_grp_type = "domain_%s" % typ
-            query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
-            query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
+
+            if who == '*':
+                # special case: all users
+                query_params['usr_grp_type'] = 1
+            else:
+                # LDAP user/group
+                usr_grp_type = "domain_%s" % typ
+                query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
+                query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
 
         elif parent_type == 'filesystem':
             # directory quotas target dtrees (0) by default, switch to filesystems (1)
