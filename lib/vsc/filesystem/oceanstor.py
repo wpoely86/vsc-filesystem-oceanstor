@@ -541,6 +541,30 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return dtree_filesets
 
+    def get_fileset_info(self, filesystem_name, fileset_name):
+        """
+        Get all the relevant information for a given fileset.
+
+        @type filesystem_name: string representing a OceanStor filesystem
+        @type fileset_name: string representing a OceanStor fileset name (not the ID)
+
+        @returns: dictionary with the fileset information or None if the fileset cannot be found
+
+        @raise OceanStorOperationError: if there is no filesystem with the given name
+        """
+        self.list_filesets(filesystemnames=filesystem_name)
+        try:
+            filesystem_fsets = self.oceanstor_filesets[filesystem_name]
+        except KeyError:
+            errmsg = "OceanStor has no fileset information for filesystem %s" % filesystem_name
+            self.log.raiseException(errmsg, GpfsOperationError)
+
+        for fset in filesystem_fsets.values():
+            if fset['name'] == fileset_name:
+                return fset
+
+        return None
+
     def list_nfs_shares(self, filesystemnames=None, update=False):
         """
         Get all NFS shares in given filesystems
