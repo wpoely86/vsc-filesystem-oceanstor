@@ -1355,4 +1355,4 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             'soft_grace_time': grace,
         }
         _, response = self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Grace period of quota '%s' updated succesfully: %s days", grace)
+        self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
