@@ -448,6 +448,24 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return fs_select
 
+    def get_filesystem_info(self, filesystem):
+        """
+        Get all the relevant information for a given OceanStor filesystem.
+
+        @type filesystem: string representing the name of the filesystem in OceanStor
+
+        @returns: dictionary with the OceanStor information
+
+        @raise OceanStorOperationError: if there is no filesystem with the given name
+        """
+        self.list_filesystems()
+        try:
+            return self.oceanstor_filesystems[filesystem]
+        except KeyError:
+            errmsg = "OceanStor has no information for filesystem %s" % (filesystem)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+            return None
+
     def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
         """
         Get all dtree filesets in given devices and given filesystems
