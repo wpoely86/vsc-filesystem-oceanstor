@@ -235,11 +235,11 @@ class OceanStorOperationError(PosixOperationError):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, api_url, account, username, password):
+    def __init__(self, url, account, username, password):
         """
         Initialize REST client and request authentication token
 
-        @type api_url: string with URL of REST API, only scheme and FQDM of server is needed
+        @type url: string with URL of REST API, only scheme and FQDM of server is needed
         @type account: string with name of account in OceanStor
         @type username: string with username for the REST API
         @type password: string with plain password for the REST API
@@ -260,7 +260,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.account = account
 
         # OceanStor API URL
-        self.api_url = os.path.join(api_url, *OCEANSTOR_API_PATH)
+        self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
         # Initialize REST client without user/password
