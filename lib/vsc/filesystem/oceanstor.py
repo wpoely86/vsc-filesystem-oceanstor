@@ -1118,11 +1118,29 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
-        # Always set default user quotas for all users, instead of quotas specific to each user
-        # OceanStor does not yet support setting new user quotas on non-empty filesets
-        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        # TODO: remove (1) and (2) once OceanStor supports setting user quotas on non-empty filesets
+        # (1) Always set default user quotas for all users, instead of quotas specific to each user
         user = '*'
-
+        # (2) User quotas in VOs are hardcoded to 100% of VO fileset quota
+        if 'brussel/vo' in obj:
+            quota_parent, quota_id = self._get_quota(None, obj, 'fileset')
+            if quota_id:
+                # get fileset quota for this dtree
+                fileset_quotas = [
+                    self.oceanstor_quotas[fs]['fileset']
+                    for fs in self.oceanstor_quotas
+                    if 'fileset' in self.oceanstor_quotas[fs]
+                ]
+                # only 1 fileset quota can exist per dtree
+                user_dtree_quota = [q[quota_id[0]] for q in fileset_quotas if quota_id[0] in q][0]
+                hard = user_dtree_quota['space_hard_quota']
+                self.log.debug("Updated user default hard quota in '%s' to 100%% of dtree quota: %s bytes", obj, hard)
+                soft = user_dtree_quota['space_soft_quota']
+                self.log.debug("Updated user default soft quota in '%s' to 100%% of dtree quota: %s bytes", obj, soft)
+            else:
+                errmsg = "cannot set user default quota in a dtree without fileset quota: %s" % obj
+                self.log.raiseException(errmsg, OceanStorOperationError)
+                
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
 
