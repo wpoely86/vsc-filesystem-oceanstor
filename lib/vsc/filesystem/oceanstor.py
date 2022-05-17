@@ -264,7 +264,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
         # Initialize REST client without user/password
-        self.session = OceanStorRestClient(self.api_url, ssl_verify=False)
+        self.session = OceanStorRestClient(self.api_url)
         # Get token for this session with user/password
         self.session.client.get_x_auth_token(username, password)
 
