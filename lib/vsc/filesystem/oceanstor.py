@@ -1226,7 +1226,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Modify existing quota
         query_params['id'] = quota_id
         _, response = self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Quota '%s' updated succesfully")
+        self.log.info("Quota '%s' updated succesfully", quota_id)
 
     def _new_quota_api(self, quota_parent, typ='user', who=None, **kwargs):
         """
