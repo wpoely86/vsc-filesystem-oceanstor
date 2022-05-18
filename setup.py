@@ -45,11 +45,12 @@ if sys.version_info < (3, 3):
     install_requires.append('ipaddress')
 
 PACKAGE = {
-    'version': '0.5.2',
+    'version': '0.5.3',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
     'install_requires': install_requires,
+    'excluded_pkgs_rpm': ['vsc', 'vsc.filesystem'],
 }
 
 
