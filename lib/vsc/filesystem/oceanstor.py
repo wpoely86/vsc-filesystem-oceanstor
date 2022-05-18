@@ -1200,11 +1200,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if quotas:
             # local path already has quotas of given type
             for quota_id in quotas:
-                self.log.debug("Sending request to update quota with ID: %s", quota_id)
+                self.log.debug("Sending request to update %s quota with ID: %s", typ, quota_id)
                 self._change_quota_api(quota_id, **kwargs)
         else:
             # create new quota of given type
-            self.log.debug("Sending request to create new quota for object ID: %s", quota_parent)
+            self.log.debug("Sending request to create new %s quota for object ID: %s", typ, quota_parent)
             self._new_quota_api(quota_parent, typ=typ, who=who, **kwargs)
 
         # Update quota list from this filesystem
