@@ -876,10 +876,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set initial quotas: 1MB for blocks soft limit and inodes_max for inodes soft limit
-        block_soft = 1048576  # bytes
-        self.set_fileset_quota(block_soft, dtree_fullpath, inode_soft=inodes_max)
-
         # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes soft limit
         # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
         block_soft = 1048576  # bytes
