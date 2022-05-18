@@ -103,7 +103,7 @@ class OceanStorClient(Client):
 
         # X-Auth-Token header
         self.x_auth_header = None
-        ssl_verify = kwargs.get('ssl_verify', False)
+        ssl_verify = kwargs.get('ssl_verify', True)
 
         if ssl_verify is False:
             # Disable verification of SSL certificates
