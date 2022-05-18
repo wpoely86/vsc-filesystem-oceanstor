@@ -394,7 +394,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             self.oceanstor_filesystems = filesystems
 
-        self.log.debug(dbg_prefix + "Filesystems in OceanStor: %s", ", ".join(filesystems))
+        self.log.debug("%sFilesystems in OceanStor: %s", dbg_prefix, ", ".join(filesystems))
 
         return filesystems
 
@@ -517,7 +517,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 dtree_filesets[fs_name] = fs_dtree
 
             dt_names = [dt['name'] for dt in dtree_filesets[fs_name].values()]
-            self.log.debug(dbg_prefix + "Dtree filesets in OceanStor filesystem '%s': %s", fs_name, ', '.join(dt_names))
+            self.log.debug("%sDtree filesets in OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ', '.join(dt_names))
 
         # Update dtree filesets in the selected filesystems
         self.oceanstor_filesets.update(dtree_filesets)
@@ -612,8 +612,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 nfs_shares[fs_name] = fs_nfs_shares
 
             nfs_desc = ["'%s'" % ns['description'] for ns in nfs_shares[fs_name].values()]
-            dbgmsg = "NFS shares in OceanStor filesystem '%s': %s"
-            self.log.debug(dbg_prefix + dbgmsg, fs_name, ', '.join(nfs_desc))
+            self.log.debug("%sNFS shares in OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ', '.join(nfs_desc))
 
         # Store all NFS shares in selected filesystems
         self.oceanstor_nfsshares.update(nfs_shares)
@@ -679,8 +678,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 nfs_clients[ns_id] = share_client
 
             nc_access_name = ["'%s'" % nc['access_name'] for nc in nfs_clients[ns_id].values()]
-            dbgmsg = "NFS clients for OceanStor NFS share ID '%s': %s"
-            self.log.debug(dbg_prefix + dbgmsg, ns_id, ', '.join(nc_access_name))
+            self.log.debug("%sNFS clients for OceanStor NFS share ID '%s': %s", dbg_prefix, ns_id, ', '.join(nc_access_name))
 
         # Store all NFS shares in selected filesystems
         self.oceanstor_nfsclients.update(nfs_clients)
@@ -1014,8 +1012,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 quotas[fs_name] = fs_quotas
 
             quota_count = ["%s = %s" % (qt, len(quotas[fs_name][qt])) for qt in OCEANSTOR_QUOTA_TYPE]
-            dbgmsg = "Quota types for OceanStor filesystem '%s': %s"
-            self.log.debug(dbg_prefix + dbgmsg, fs_name, ', '.join(quota_count))
+            self.log.debug("%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ', '.join(quota_count))
+
 
         # Store all quotas in selected filesystems
         self.oceanstor_quotas.update(quotas)
