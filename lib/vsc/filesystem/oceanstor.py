@@ -1118,7 +1118,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # (1) Always set default user quotas for all users, instead of quotas specific to each user
         self.log.warning("Quota for user '%s' replaced with a default user quota", user)
         user = '*'
-        # (2) User quotas in VOs are hardcoded to 100% of VO fileset quota
+        # (2) User quotas in VOs are temporarily frozen to 100% of VO fileset quota
         if 'brussel/vo' in obj:
             quota_parent, quota_id = self._get_quota(None, obj, 'fileset')
             if quota_id:
@@ -1176,6 +1176,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=fileset_name, obj=fileset_path, typ='fileset', **quota_limits)
+
+        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        # User quotas in VOs are temporarily frozen to 100% of VO fileset quota
+        if 'brussel/vo' in fileset_path:
+            # Update default user quota in this VO to 100% of fileset quota
+            self._set_quota(who='*', obj=fileset_path, typ='user', **quota_limits)
 
     def _set_quota(self, who, obj, typ='user', **kwargs):
         """
