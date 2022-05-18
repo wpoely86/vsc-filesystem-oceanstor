@@ -235,11 +235,11 @@ class OceanStorOperationError(PosixOperationError):
 
 
 class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
-    def __init__(self, api_url, account, username, password):
+    def __init__(self, url, account, username, password):
         """
         Initialize REST client and request authentication token
 
-        @type api_url: string with URL of REST API, only scheme and FQDM of server is needed
+        @type url: string with URL of REST API, only scheme and FQDM of server is needed
         @type account: string with name of account in OceanStor
         @type username: string with username for the REST API
         @type password: string with plain password for the REST API
@@ -260,11 +260,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.account = account
 
         # OceanStor API URL
-        self.api_url = os.path.join(api_url, *OCEANSTOR_API_PATH)
+        self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
         # Initialize REST client without user/password
-        self.session = OceanStorRestClient(self.api_url, ssl_verify=False)
+        self.session = OceanStorRestClient(self.api_url)
         # Get token for this session with user/password
         self.session.client.get_x_auth_token(username, password)
 
@@ -448,6 +448,24 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return fs_select
 
+    def get_filesystem_info(self, filesystem):
+        """
+        Get all the relevant information for a given OceanStor filesystem.
+
+        @type filesystem: string representing the name of the filesystem in OceanStor
+
+        @returns: dictionary with the OceanStor information
+
+        @raise OceanStorOperationError: if there is no filesystem with the given name
+        """
+        self.list_filesystems()
+        try:
+            return self.oceanstor_filesystems[filesystem]
+        except KeyError:
+            errmsg = "OceanStor has no information for filesystem %s" % (filesystem)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+            return None
+
     def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
         """
         Get all dtree filesets in given devices and given filesystems
@@ -522,6 +540,30 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 }
 
         return dtree_filesets
+
+    def get_fileset_info(self, filesystem_name, fileset_name):
+        """
+        Get all the relevant information for a given fileset.
+
+        @type filesystem_name: string representing a OceanStor filesystem
+        @type fileset_name: string representing a OceanStor fileset name (not the ID)
+
+        @returns: dictionary with the fileset information or None if the fileset cannot be found
+
+        @raise OceanStorOperationError: if there is no filesystem with the given name
+        """
+        self.list_filesets(filesystemnames=filesystem_name)
+        try:
+            filesystem_fsets = self.oceanstor_filesets[filesystem_name]
+        except KeyError:
+            errmsg = "OceanStor has no fileset information for filesystem %s" % filesystem_name
+            self.log.raiseException(errmsg, GpfsOperationError)
+
+        for fset in filesystem_fsets.values():
+            if fset['name'] == fileset_name:
+                return fset
+
+        return None
 
     def list_nfs_shares(self, filesystemnames=None, update=False):
         """
@@ -792,38 +834,37 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         del inodes_prealloc
         del parent_fileset_name
 
-        dt_fullpath = self._sanity_check(new_fileset_path)
+        dtree_fullpath = self._sanity_check(new_fileset_path)
+        dtree_name = os.path.basename(dtree_fullpath)
 
-        if fileset_name is None:
-            # Use name of last folder as name of dtree fileset in OceanStor
-            fileset_name = os.path.basename(dt_fullpath)
-        else:
+        if fileset_name is not None and fileset_name != dtree_name:
             # Append the fileset name to the given path
-            dt_fullpath = os.path.join(dt_fullpath, fileset_name)
-            dt_fullpath = self._sanity_check(dt_fullpath)
+            dtree_fullpath = os.path.join(dtree_fullpath, fileset_name)
+            dtree_fullpath = self._sanity_check(dtree_fullpath)
+            dtree_name = fileset_name
 
         # Check existence of path in local filesystem
-        if self.exists(dt_fullpath):
+        if self.exists(dtree_fullpath):
             errmsg = "Path of new fileset in '%s' validated as '%s' but it already exists."
-            self.log.raiseException(errmsg % (new_fileset_path, dt_fullpath), OceanStorOperationError)
+            self.log.raiseException(errmsg % (new_fileset_path, dtree_fullpath), OceanStorOperationError)
 
-        dt_parentdir = os.path.dirname(dt_fullpath)
-        if not self.exists(dt_parentdir):
+        dtree_parentdir = os.path.dirname(dtree_fullpath)
+        if not self.exists(dtree_parentdir):
             errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
-            self.log.raiseException(errmsg % (dt_parentdir, dt_fullpath), OceanStorOperationError)
+            self.log.raiseException(errmsg % (dtree_parentdir, dtree_fullpath), OceanStorOperationError)
 
         # Identify local mounted filesystem
-        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dt_parentdir)
+        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dtree_parentdir)
 
         # Check type of OceanStor object mounted in this path
         if int(ostor_dtree_id) == 0:
             # this NFS mount contains a filesystem
             ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
-            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dt_fullpath, ostor_fs_name)
+            self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dtree_fullpath, ostor_fs_name)
         else:
             # this NFS mount contains a dtree fileset
             errmsg = "NFS mount '%s' is already a dtree fileset (%s@%s). Nested dtrees are not allowed in OceanStor."
-            self.log.raiseException(errmsg % (dt_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
+            self.log.raiseException(errmsg % (dtree_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
 
         # Send API request to create the new dtree fileset
         dbgmsg = "Sending request for new dtree fileset '%s' in OceanStor filesystem '%s' with parent directory '%s'"
@@ -835,9 +876,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set initial quotas: 1MB for blocks soft limit and inodes_max for inodes soft limit
+        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes soft limit
+        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
         block_soft = 1048576  # bytes
-        self.set_fileset_quota(block_soft, dt_fullpath, inode_soft=inodes_max)
+        self.set_user_quota(block_soft, '*', obj=dtree_fullpath, inode_soft=inodes_max)
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir='/'):
         """
@@ -1052,6 +1094,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Filter user/group quotas by given uid/gid
         if typ in ['user', 'group'] and who is not None:
+            if who == '*':
+                who = 'All User'  # special case: default quota '*' registers as 'All User'
+
             attached_quotas = {fq['id']: fq for fq in attached_quotas.values() if fq['usr_grp_owner_name'] == str(who)}
             dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
             self.log.debug(dbgmsg, parent_id, who, ', '.join(attached_quotas))
@@ -1069,6 +1114,31 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # TODO: remove (1) and (2) once OceanStor supports setting user quotas on non-empty filesets
+        # (1) Always set default user quotas for all users, instead of quotas specific to each user
+        self.log.warning("Quota for user '%s' replaced with a default user quota", user)
+        user = '*'
+        # (2) User quotas in VOs are temporarily frozen to 100% of VO fileset quota
+        if 'brussel/vo' in obj:
+            quota_parent, quota_id = self._get_quota(None, obj, 'fileset')
+            if quota_id:
+                # get fileset quota for this dtree
+                fileset_quotas = [
+                    self.oceanstor_quotas[fs]['fileset']
+                    for fs in self.oceanstor_quotas
+                    if 'fileset' in self.oceanstor_quotas[fs]
+                ]
+                # only 1 fileset quota can exist per dtree
+                user_dtree_quota = [q[quota_id[0]] for q in fileset_quotas if quota_id[0] in q][0]
+                hard = user_dtree_quota['space_hard_quota']
+                self.log.debug("Updated user default hard quota in '%s' to 100%% of dtree quota: %s bytes", obj, hard)
+                soft = user_dtree_quota['space_soft_quota']
+                self.log.debug("Updated user default soft quota in '%s' to 100%% of dtree quota: %s bytes", obj, soft)
+            else:
+                # new VO with fileset quota missing, create it with user limits
+                self.log.debug("Creating fileset quota in '%s' with soft limit: %s bytes", obj, soft)
+                self.set_fileset_quota(soft, obj, hard=hard, inode_soft=inode_soft, inode_hard=inode_hard)
+                
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
 
@@ -1107,6 +1177,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=fileset_name, obj=fileset_path, typ='fileset', **quota_limits)
 
+        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        # User quotas in VOs are temporarily frozen to 100% of VO fileset quota
+        if 'brussel/vo' in fileset_path:
+            # Update default user quota in this VO to 100% of fileset quota
+            self._set_quota(who='*', obj=fileset_path, typ='user', **quota_limits)
+
     def _set_quota(self, who, obj, typ='user', **kwargs):
         """
         Set quota on a given local object.
@@ -1131,11 +1207,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if quotas:
             # local path already has quotas of given type
             for quota_id in quotas:
-                self.log.debug("Sending request to update quota with ID: %s", quota_id)
+                self.log.debug("Sending request to update %s quota with ID: %s", typ, quota_id)
                 self._change_quota_api(quota_id, **kwargs)
         else:
             # create new quota of given type
-            self.log.debug("Sending request to create new quota for object ID: %s", quota_parent)
+            self.log.debug("Sending request to create new %s quota for object ID: %s", typ, quota_parent)
             self._new_quota_api(quota_parent, typ=typ, who=who, **kwargs)
 
         # Update quota list from this filesystem
@@ -1154,7 +1230,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Modify existing quota
         query_params['id'] = quota_id
         _, response = self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Quota '%s' updated succesfully")
+        self.log.info("Quota '%s' updated succesfully", quota_id)
 
     def _new_quota_api(self, quota_parent, typ='user', who=None, **kwargs):
         """
@@ -1183,9 +1259,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 self.log.raiseException(errmsg % quota_parent, OceanStorOperationError)
 
             query_params['usr_grp_owner_name'] = str(who)
-            usr_grp_type = "domain_%s" % typ
-            query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
-            query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
+
+            if who == '*':
+                # special case: all users
+                query_params['usr_grp_type'] = 1
+            else:
+                # LDAP user/group
+                usr_grp_type = "domain_%s" % typ
+                query_params['usr_grp_type'] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
+                query_params['domain_type'] = OCEANSTOR_QUOTA_DOMAIN_TYPE['LDAP']
 
         elif parent_type == 'filesystem':
             # directory quotas target dtrees (0) by default, switch to filesystems (1)
@@ -1314,4 +1396,4 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             'soft_grace_time': grace,
         }
         _, response = self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Grace period of quota '%s' updated succesfully: %s days", grace)
+        self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
