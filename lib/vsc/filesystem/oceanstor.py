@@ -1,9 +1,9 @@
-##
-# Copyright 2022 Vrije Universiteit Brussel
+#
+# Copyright 2022-2022 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
-# originally created by the HPC team of Vrij Universiteit Brussel (http://hpc.vub.be),
-# with support of Vrije Universiteit Brussel (http://www.vub.be),
+# originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),
+# with support of Vrije Universiteit Brussel (https://www.vub.be),
 # the Flemish Supercomputer Centre (VSC) (https://www.vscentrum.be),
 # the Flemish Research Foundation (FWO) (http://www.fwo.be/en)
 # and the Department of Economy, Science and Innovation (EWI) (http://www.ewi-vlaanderen.be/en).
@@ -11,7 +11,7 @@
 # https://github.com/vub-hpc/vsc-filesystem-oceanstor
 #
 # vsc-filesystem-oceanstor is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as published by
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation v2.
 #
 # vsc-filesystem-oceanstor is distributed in the hope that it will be useful,
@@ -20,9 +20,8 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with vsc-manage.  If not, see <http://www.gnu.org/licenses/>.
+# along with vsc-filesystem-oceanstor.  If not, see <http://www.gnu.org/licenses/>.
 #
-##
 """
 Interface for Huawei Pacific OceanStor
 
@@ -112,7 +111,7 @@ class OceanStorClient(Client):
             self.opener = build_opener(nosslHandler)
             fancylogger.getLogger().warning("Verification of SSL certificates disabled by request!")
 
-    def get(self, url, pagination=False, headers=None, **params):
+    def get(self, url, pagination=False, headers=None, **params):  # pylint: disable=arguments-differ
         """
         HTTP GET request of all pages in the given url with given headers and parameters
         Parameters is a dictionary that will be urlencoded
@@ -213,7 +212,7 @@ class OceanStorClient(Client):
 
         try:
             token = response['data']['x_auth_token']
-        except AttributeError as err:
+        except AttributeError:
             errmsg = "X-Auth-Token not found in response from OceanStor"
             fancylogger.getLogger().raiseException(errmsg, exception=AttributeError)
         else:
@@ -420,7 +419,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # Seek filesystems by numeric ID
             try:
                 target_filesystems_id = [int(fs_id) for fs_id in target_filesystems]
-            except ValueError as err:
+            except ValueError:
                 errmsg = "Malformed list of filesystem IDs: %s"
                 self.log.raiseException(errmsg % ', '.join([str(fs_id) for fs_id in target_filesystems]), ValueError)
             else:
@@ -532,7 +531,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             # REST API does not accept multiple names in the filter of 'file_service/dtrees'
             # Therefore, we filter from cached data
-            for fs in dtree_filesets:
+            for fs in dtree_filesets.keys():
                 dtree_filesets[fs] = {
                     dt: dtree_filesets[fs][dt]
                     for dt in dtree_filesets[fs]
@@ -557,7 +556,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystem_fsets = self.oceanstor_filesets[filesystem_name]
         except KeyError:
             errmsg = "OceanStor has no fileset information for filesystem %s" % filesystem_name
-            self.log.raiseException(errmsg, GpfsOperationError)
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         for fset in filesystem_fsets.values():
             if fset['name'] == fileset_name:
@@ -705,7 +704,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         comma_sep_ips = ', '.join([str(ip) for ip in nfs_servers])
         try:
             nfs_servers = [IPv4Address(ip) for ip in nfs_servers]
-        except AddressValueError as err:
+        except AddressValueError:
             errmsg = "Received malformed server IPs from OceanStor: %s" % comma_sep_ips
             self.log.raiseException(errmsg, OceanStorOperationError)
         else:
@@ -747,7 +746,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Check NFS server IP
                 try:
                     server_ip = IPv4Address(gethostbyname(server_address))
-                except AddressValueError as err:
+                except AddressValueError:
                     errmsg = "Error converting address of NFS server to an IPv4: %s" % server_address
                     self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -854,7 +853,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg % (dtree_parentdir, dtree_fullpath), OceanStorOperationError)
 
         # Identify local mounted filesystem
-        ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_parentdir = self._identify_local_path(dtree_parentdir)
+        ostor_fs_id, ostor_dtree_id, _, ostor_parentdir = self._identify_local_path(dtree_parentdir)
 
         # Check type of OceanStor object mounted in this path
         if int(ostor_dtree_id) == 0:
@@ -937,7 +936,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Rescan all filesets and force update the info
         self.list_filesets(update=True)
 
-    def list_quota(self, devices=None, update=False):
+    def list_quota(self, devices=None, update=False):  # pylint: disable=arguments-differ
         """
         Get quota info for all filesystems for all quota types (fileset, user, group)
 
@@ -1120,7 +1119,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         user = '*'
         # (2) User quotas in VOs are temporarily frozen to 100% of VO fileset quota
         if 'brussel/vo' in obj:
-            quota_parent, quota_id = self._get_quota(None, obj, 'fileset')
+            _, quota_id = self._get_quota(None, obj, 'fileset')
             if quota_id:
                 # get fileset quota for this dtree
                 fileset_quotas = [
@@ -1138,7 +1137,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # new VO with fileset quota missing, create it with user limits
                 self.log.debug("Creating fileset quota in '%s' with soft limit: %s bytes", obj, soft)
                 self.set_fileset_quota(soft, obj, hard=hard, inode_soft=inode_soft, inode_hard=inode_hard)
-                
+
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
 
@@ -1229,7 +1228,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Modify existing quota
         query_params['id'] = quota_id
-        _, response = self.session.file_service.fs_quota.put(body=query_params)
+        self.session.file_service.fs_quota.put(body=query_params)
         self.log.info("Quota '%s' updated succesfully", quota_id)
 
     def _new_quota_api(self, quota_parent, typ='user', who=None, **kwargs):
@@ -1395,5 +1394,5 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             'id': quota_id,
             'soft_grace_time': grace,
         }
-        _, response = self.session.file_service.fs_quota.put(body=query_params)
+        self.session.file_service.fs_quota.put(body=query_params)
         self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
