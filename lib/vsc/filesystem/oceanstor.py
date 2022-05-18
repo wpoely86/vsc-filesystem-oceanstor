@@ -1116,6 +1116,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         # TODO: remove (1) and (2) once OceanStor supports setting user quotas on non-empty filesets
         # (1) Always set default user quotas for all users, instead of quotas specific to each user
+        self.log.warning("Quota for user '%s' replaced with a default user quota", user)
         user = '*'
         # (2) User quotas in VOs are hardcoded to 100% of VO fileset quota
         if 'brussel/vo' in obj:
