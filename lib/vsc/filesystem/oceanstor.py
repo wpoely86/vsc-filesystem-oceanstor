@@ -1135,8 +1135,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 soft = user_dtree_quota['space_soft_quota']
                 self.log.debug("Updated user default soft quota in '%s' to 100%% of dtree quota: %s bytes", obj, soft)
             else:
-                errmsg = "cannot set user default quota in a dtree without fileset quota: %s" % obj
-                self.log.raiseException(errmsg, OceanStorOperationError)
+                # new VO with fileset quota missing, create it with user limits
+                self.log.debug("Creating fileset quota in '%s' with soft limit: %s bytes", obj, soft)
+                self.set_fileset_quota(soft, obj, hard=hard, inode_soft=inode_soft, inode_hard=inode_hard)
                 
         quota_limits = {'soft': soft, 'hard': hard, 'inode_soft': inode_soft, 'inode_hard': inode_hard}
         self._set_quota(who=user, obj=obj, typ='user', **quota_limits)
