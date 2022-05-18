@@ -97,12 +97,13 @@ VSC_NETWORK_LABEL = "VSC"
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
 
-    def __init__(self, *args, ssl_verify=True, **kwargs):
+    def __init__(self, *args, **kwargs):
         """Wrapper for Client.__init__() allowing to disable SSL certificate verification"""
         super(OceanStorClient, self).__init__(*args, **kwargs)
 
         # X-Auth-Token header
         self.x_auth_header = None
+        ssl_verify = kwargs.get('ssl_verify', False)
 
         if ssl_verify is False:
             # Disable verification of SSL certificates
