@@ -247,6 +247,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         super(OceanStorOperations, self).__init__()
 
         self.supportedfilesystems = ["nfs"]
+        self.ignorerealpathmismatch = True  # allow working through symlinks
 
         self.oceanstor_storagepools = dict()
         self.oceanstor_filesystems = dict()
