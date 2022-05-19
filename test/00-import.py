@@ -1,5 +1,5 @@
 #
-# Copyright 2020-2022 Vrije Universiteit Brussel
+# Copyright 2022-2022 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
 # originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),
@@ -22,12 +22,4 @@
 # You should have received a copy of the GNU General Public License
 # along with vsc-filesystem-oceanstor.  If not, see <http://www.gnu.org/licenses/>.
 #
-"""
-Initialize vsc package.
-The vsc namespace is used in different folders along the system
-so explicitly declare this is also the vsc namespace.
-
-@author: Andy Georges (Ghent University)
-"""
-import pkg_resources
-pkg_resources.declare_namespace(__name__)
+from vsc.install.commontest import CommonTest
