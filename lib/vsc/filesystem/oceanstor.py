@@ -44,7 +44,7 @@ from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
 from vsc.utils.rest import Client, RestClient
-from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener
+from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener, is_py2
 
 OCEANSTOR_API_PATH = ["api", "v2"]
 
@@ -748,7 +748,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
                 # Check NFS server IP
                 try:
-                    server_ip = IPv4Address(gethostbyname(server_address))
+                    server_ip_str = gethostbyname(server_address)
+                    if is_py2():
+                        server_ip_str = server_ip_str.decode("utf-8")
+                    server_ip = IPv4Address(server_ip_str)
                 except AddressValueError:
                     errmsg = "Error converting address of NFS server to an IPv4: %s" % server_address
                     self.log.raiseException(errmsg, OceanStorOperationError)
