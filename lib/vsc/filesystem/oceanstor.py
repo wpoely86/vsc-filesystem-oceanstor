@@ -997,6 +997,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystemnames = list(filesystems.keys())
         elif isinstance(devices, str):
             filesystemnames = [devices]
+        else:
+            filesystemnames = devices
 
         filter_fs = self.select_filesystems(filesystemnames)
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
