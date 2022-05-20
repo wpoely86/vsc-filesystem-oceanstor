@@ -790,6 +790,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Path '%s' is not a directory. Cannot identify OceanStor object."
             self.log.raiseException(errmsg % local_path, OceanStorOperationError)
 
+        local_path = os.path.realpath(local_path)  # resolve symlinks
+
         # Identify local mounted filesystem
         local_fs = self.what_filesystem(local_path)
 
@@ -995,6 +997,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filesystemnames = list(filesystems.keys())
         elif isinstance(devices, str):
             filesystemnames = [devices]
+        else:
+            filesystemnames = devices
 
         filter_fs = self.select_filesystems(filesystemnames)
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
