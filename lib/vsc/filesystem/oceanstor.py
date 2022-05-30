@@ -1490,3 +1490,56 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         }
         self.session.file_service.fs_quota.put(body=query_params)
         self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
+
+    @staticmethod
+    def determine_grace_periods(quota):
+        """
+        Determine if grace period has expired
+
+        @type quota: StorageQuota named tuple
+
+        @returns: grace expiration on blocks and grace expiration on files 
+        """
+
+        block_expire = OceanStorOperations._get_grace_expiration(
+            quota.blockGrace, quota.blockUsage, quota.blockQuota, quota.blockLimit
+        )
+        files_expire = OceanStorOperations._get_grace_expiration(
+            quota.filesGrace, quota.filesUsage, quota.filesQuota, quota.filesLimit
+        )
+
+        return block_expire, files_expire
+
+    @staticmethod
+    def _get_grace_expiration(grace, usage, soft, hard):
+        """
+        Figure out if grace period has expired from the usage and quota limits
+        OceanStor API does not provide the remaining 'soft_grace_time' in overquota
+
+        @type grace: grace period in days
+        @type usage: data usage in bytes
+        @type soft: soft quota limit in bytes
+        @type hard: hard quota limit in bytes
+
+        @returns tuple: (expiration state, grace time)
+        """
+        if grace == 0:
+            # unlimited grace time: set very long grace time
+            grace = 9999
+            fancylogger.getLogger().debug("Effective period of unlimited grace time set to %s days", grace)
+
+        if usage > soft:
+            # over quota
+            if soft < hard:
+                # grace not expired: we only know the maximum grace time
+                grace_time = grace * 24 * 3600
+            else:
+                # grace expired
+                grace_time = 0
+            expired = (True, grace_time)
+        else:
+            # below soft quota
+            expired = (False, None)
+
+        return expired
+
