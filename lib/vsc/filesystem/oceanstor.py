@@ -1093,6 +1093,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 "id": quota["id"],
                 "name": quota["resuse_name"],
                 "quota": quota["quota_type"],
+                "filesetname": None,
                 "blockUsage": quota["space_used"] * byte_conversion,
                 "blockQuota": quota["space_soft_quota"] * byte_conversion,
                 "blockLimit": quota["space_hard_quota"] * byte_conversion,
@@ -1114,11 +1115,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Quota attribute '%s' not found. List of available attributes: %s" % (qa_miss, qa_avail)
             self.log.raiseException(errmsg, KeyError)
 
-        # Set extra filesetname attribute for fileset quotas
-        if storage_quota["quota"] == OceanStorQuotaType.fileset.value:
-            storage_quota["filesetname"] = storage_quota["name"]
+        # Extra filesetname attribute needed by AP
+        if storage_quota["parentType"] == 16445:
+            # set to parent fileset ID of quota
+            storage_quota["filesetname"] = storage_quota["parentId"]
         else:
-            storage_quota["filesetname"] = None
+            # ignore quotas of filesystems
+            return None
 
         return storage_quota
 
@@ -1170,7 +1173,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     for quota_obj in response["data"]:
                         quota_type = OceanStorQuotaType(quota_obj["quota_type"]).name
                         quota_attributes = self._convert_quota_attributes(quota_obj)
-                        fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
+                        if quota_attributes:
+                            fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
 
                 quotas[fs_name] = fs_quotas
 
