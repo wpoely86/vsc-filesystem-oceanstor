@@ -271,7 +271,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def list_storage_pools(self, update=False):
         """
-        List all storage pools (equivalent to devices in GPFS)
+        List available storage pools in OceanStor
 
         Set self.oceanstor_storagepools as dict with
         : keys per storagePoolName and value is dict with
@@ -322,7 +322,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Return list of existing storage pools with the provided storage pool names
 
-        @type sp_names: list of names (if string: 1 device)
+        @type sp_names: list of names (if string: 1 storage pool)
         """
         storage_pools = self.list_storage_pools()
 
@@ -345,11 +345,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return sp_select
 
-    def list_filesystems(self, device=None, update=False):
+    def list_filesystems(self, device=None, pool=None, update=False):
         """
-        List all filesystems
+        List filesystems in OceanStor
 
-        @type device: list of names (if string: 1 device, if None or all: all known devices)
+        @type device: list of filesystem names (if string: 1 filesystem, if None or all: all known ones)
+        @type pool: list of storage pools names (if string: 1 storage pool; if None or all: all known ones)
 
         Set self.oceanstor_filesystems as dict with
         : keys per filesystemName and value is dict with
@@ -369,13 +370,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - storage_pool_id
         """
 
-        # Filter by requested devices (storage pools in OceanStor)
+        # Filter by requested storage pool
         # Support special case 'all' for downstream compatibility
-        if device is None or device == "all":
+        if pool is None or pool == "all":
             storage_pools = self.list_storage_pools(update=update)
-            device = list(storage_pools.keys())
+            pool = list(storage_pools.keys())
 
-        filter_sp = self.select_storage_pools(device, byid=True)
+        filter_sp = self.select_storage_pools(pool, byid=True)
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ", ".join(str(i) for i in filter_sp))
 
         if not update and self.oceanstor_filesystems:
@@ -394,19 +395,35 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 _, response = self.session.file_service.file_systems.get(filter=filter_json)
                 filesystems.update({fs["name"]: fs for fs in response["data"]})
 
+            # Update filesystems in the selected pools
             self.oceanstor_filesystems = filesystems
+
+        # Filter by filesystem name (device in GPFS)
+        # Support special case 'all' for downstream compatibility
+        if device == "all":
+            device = None
+
+        if device is not None:
+            if isinstance(device, str):
+                device = [device]
+
+            self.log.debug("Filtering filesystems by name: %s", ", ".join(device))
+
+            # REST API does not accept multiple names in the filter of 'file_service/file_systems'
+            # Therefore, we filter from cached data
+            filesystems = {fs_name: filesystems[fs_name] for fs_name in device}
 
         self.log.debug("%sFilesystems in OceanStor: %s", dbg_prefix, ", ".join(filesystems))
 
         return filesystems
 
-    def select_filesystems(self, filesystemnames, devices=None, byid=False):
+    def select_filesystems(self, filesystemnames, pool=None, byid=False):
         """
         Return dict of existing filesytem names and their IDs that match given filesystem names
         Restrict found filesystems to given storage pools names
 
         @type filesystemnames: list of filesystem names (if string: 1 filesystem)
-        @type devices: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
+        @type pool: list of storage pools names (if string: 1 storage pool; if None: all known storage pools)
         @type byid: boolean (if True: seek filesystems by ID instead of name)
         """
         if not isinstance(filesystemnames, list):
@@ -415,7 +432,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         target_filesystems = [str(fs) for fs in filesystemnames]
 
         # Filter by storage pools
-        filesystems = self.list_filesystems(device=devices)
+        filesystems = self.list_filesystems(pool=pool)
 
         if byid:
             # Seek filesystems by numeric ID
@@ -467,15 +484,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
             return None
 
-    def list_filesets(self, devices=None, filesystemnames=None, filesetnames=None, update=False):
+    def list_filesets(self, devices=None, filesetnames=None, pool=None, update=False):
         """
         Get all dtree filesets in given devices and given filesystems
         Filter reported results by name of filesystem
         Store unfiltered data in self.oceanstor_filesets (all filesets in given devices and given filesystems)
 
-        @type devices: list of devices (if string: 1 device; if None: all found devices)
-        @type filesystemnames: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
-        @type filesetnames: list of fileset names (if string: 1 fileset)
+        @type devices: list of filesystem names (if string: 1 filesystem, if None: all known ones)
+        @type filesetnames: list of fileset names (if string: 1 fileset, if None: all known ones)
+        @type pool: list of storage pools names (if string: 1 storage pool; if None: all known ones)
 
         Set self.oceanstor_filesets as dict with
         : keys per parent filesystemName and value is dict with
@@ -490,12 +507,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - unix_mode
         """
 
-        # Filter by filesystem name (in target storage pools)
-        if filesystemnames is None:
-            filesystems = self.list_filesystems(update=update)
-            filesystemnames = list(filesystems.keys())
+        # Filter by filesystem name (device in GPFS) in target storage pool
+        if devices is None:
+            filesystems = self.list_filesystems(pool=pool, update=update)
+            devices = list(filesystems.keys())
 
-        filter_fs = self.select_filesystems(filesystemnames, devices=devices)
+        filter_fs = self.select_filesystems(devices, pool=pool)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ", ".join(filter_fs))
 
         dtree_filesets = dict()
@@ -555,7 +572,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @raise OceanStorOperationError: if there is no filesystem with the given name
         """
-        self.list_filesets(filesystemnames=filesystem_name)
+        self.list_filesets(devices=filesystem_name)
         try:
             filesystem_fsets = self.oceanstor_filesets[filesystem_name]
         except KeyError:
@@ -957,8 +974,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Get quota info for all filesystems for all quota types (fileset, user, group)
 
         @type devices: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
-        (note: the name of this argument should be filesystemnames, as devices is already used for storage pools;
-        but it is kept as devices for compatibility with vsc-filesystems)
 
         set self.oceanstor_quotas to dict with
         : keys per filesystemName and value is dict with
@@ -1085,7 +1100,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
 
             # Find a fileset in the filesystem with the corresponding parent directory
-            fs_filesets = self.list_filesets(filesystemnames=ostor_fs_name)
+            fs_filesets = self.list_filesets(devices=ostor_fs_name)
             fileset_parent, fileset_name = os.path.split(ostor_path)
             fileset = [
                 fs["id"]
