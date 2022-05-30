@@ -37,6 +37,8 @@ import re
 import ssl
 import time
 
+from collections import namedtuple
+
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
 
@@ -93,6 +95,12 @@ NFS_LOOKUP_CACHE_TIME = 60
 # Keyword identifying the VSC network zone
 VSC_NETWORK_LABEL = "VSC"
 
+# Quota settings
+StorageQuota = namedtuple('StorageQuota',
+    ['id', 'name', 'quota', 'filesetname',
+     'blockUsage', 'blockQuota', 'blockLimit', 'blockInDoubt', 'blockGrace',
+     'filesUsage', 'filesQuota', 'filesLimit', 'filesInDoubt', 'filesGrace',
+     'ownerName', 'ownerType', 'parentId', 'parentType'])
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -969,6 +977,77 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Rescan all filesets and force update the info
         self.list_filesets(update=True)
 
+    @staticmethod
+    def _convert_quota_attributes(quota):
+        """
+        Convert quota attributes from OceanStor to the common names used in StorageQuota
+
+        Keys returned by OceanStor and their conversion:
+        - domain_type: <ignored>
+        - file_advisory_quota: <ignored>
+        - file_hard_quota: filesLimit
+        - file_soft_quota: filesQuota
+        - file_used: filesUsage
+        - file_used_rate: <ignored>
+        - id: id
+        - parent_id: parentId
+        - parent_type: parentType
+        - quota_type: quota
+        - record_id: <ignored>
+        - resuse_name: name
+        - snap_modify_write_switch: <ignored>
+        - snap_space_rate: <ignored>
+        - snap_space_switch: <ignored>
+        - soft_grace_time: blockGrace, filesGrace
+        - space_advisory_quota: <ignored>
+        - space_hard_quota: blockLimit
+        - space_soft_quota: blockQuota
+        - space_unit_type: all block quotas are converted to bytes
+        - space_used: blockUsage
+        - space_used_rate: <ignored>
+        - usr_grp_owner_name: ownerName
+        - usr_grp_type: ownerType
+        - vstore_id: <ignored>
+        """
+        try:
+            byte_conversion = 1024**quota["space_unit_type"]
+        except KeyError as err:
+            self.log.raiseException("Missing space_unit_type attribute in quota object", KeyError)
+
+        try:
+            storage_quota = {
+                "id": quota["id"],
+                "name": quota["resuse_name"],
+                "quota": quota["quota_type"],
+                "blockUsage": quota["space_used"] * byte_conversion,
+                "blockQuota": quota["space_soft_quota"] * byte_conversion,
+                "blockLimit": quota["space_hard_quota"] * byte_conversion,
+                "blockInDoubt": 0,
+                "blockGrace": quota["soft_grace_time"],
+                "filesUsage": quota["file_used"],
+                "filesQuota": quota["file_soft_quota"],
+                "filesLimit": quota["file_hard_quota"],
+                "filesInDoubt": 0,
+                "filesGrace": quota["soft_grace_time"],
+                "ownerName": quota["usr_grp_owner_name"],
+                "ownerType": quota["usr_grp_type"],
+                "parentId": quota["parent_id"],
+                "parentType": quota["parent_type"],
+            }
+        except KeyError as err:
+            qa_miss = err.args[0]
+            qa_avail = ", ".join(quota)
+            errmsg = "Quota attribute '%s' not found. List of available attributes: %s" % (qa_miss, qa_avail)
+            self.log.raiseException(errmsg, KeyError)
+
+        # Set extra filesetname attribute for fileset quotas
+        if storage_quota["quota"] == OCEANSTOR_QUOTA_TYPE["fileset"]:
+            storage_quota["filesetname"] = storage_quota["name"]
+        else:
+            storage_quota["filesetname"] = None
+
+        return storage_quota
+
     def list_quota(self, devices=None, update=False):  # pylint: disable=arguments-differ
         """
         Get quota info for all filesystems for all quota types (fileset, user, group)
@@ -978,35 +1057,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         set self.oceanstor_quotas to dict with
         : keys per filesystemName and value is dict with
         :: keys per quotaType and value is dict with
-        ::: keys per quotaID and value is dict with
-        :::: keys returned by OceanStor:
-        - domain_type
-        - file_advisory_quota
-        - file_hard_quota
-        - file_soft_quota
-        - file_used
-        - file_used_rate
-        - id
-        - parent_id
-        - parent_type
-        - quota_type
-        - record_id
-        - resuse_name
-        - snap_modify_write_switch
-        - snap_space_rate
-        - snap_space_switch
-        - soft_grace_time
-        - space_advisory_quota
-        - space_hard_quota
-        - space_soft_quota
-        - space_unit_type
-        - space_used
-        - space_used_rate
-        - usr_grp_owner_name
-        - usr_grp_type
-        - vstore_id
+        ::: keys per quotaID and value is StorageQuota named tuple
         """
-        # Filter by filesystem name (aka devices in this method)
+        # Filter by filesystem name (devices in GPFS)
         if devices is None:
             filesystems = self.list_filesystems()
             filesystemnames = list(filesystems.keys())
@@ -1042,7 +1095,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     # add each quota to its category in current filesystem
                     for quota_obj in response["data"]:
                         quota_type = OCEANSTOR_QUOTA_TYPE_NAME[quota_obj["quota_type"]]
-                        fs_quotas[quota_type].update({quota_obj["id"]: quota_obj})
+                        quota_attributes = self._convert_quota_attributes(quota_obj)
+                        fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
 
                 quotas[fs_name] = fs_quotas
 
@@ -1122,7 +1176,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Find quotas attached to parent object
         fs_quotas = self.list_quota(devices=ostor_fs_name)
         typ_quotas = fs_quotas[ostor_fs_name][typ]
-        attached_quotas = {fq["id"]: fq for fq in typ_quotas.values() if fq["parent_id"] == parent_id}
+        attached_quotas = {fq.id: fq for fq in typ_quotas.values() if fq.parentId == parent_id}
 
         dbgmsg = "getQuota: quotas attached to parent ID '%s': %s"
         self.log.debug(dbgmsg, parent_id, ", ".join(attached_quotas))
@@ -1132,7 +1186,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if who == "*":
                 who = "All User"  # special case: default quota '*' registers as 'All User'
 
-            attached_quotas = {fq["id"]: fq for fq in attached_quotas.values() if fq["usr_grp_owner_name"] == str(who)}
+            attached_quotas = {fq.id: fq for fq in attached_quotas.values() if fq.ownerName == str(who)}
             dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
             self.log.debug(dbgmsg, parent_id, who, ", ".join(attached_quotas))
 
