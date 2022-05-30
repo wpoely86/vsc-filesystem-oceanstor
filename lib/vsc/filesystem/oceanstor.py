@@ -599,6 +599,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return None
 
+    def get_fileset_name(self, fileset_id, filesystem_name):
+        """
+        Return name of fileset
+
+        @type fileset_id: string with fileset ID
+        @type filesystem_name: string with device name
+        """
+        self.list_filesets(devices=filesystem_name)
+
+        try:
+            fileset_name = self.oceanstor_filesets[filesystem_name][fileset_id]['name']
+        except KeyError:
+            errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        return fileset_name
+
     def list_nfs_shares(self, filesystemnames=None, update=False):
         """
         Get all NFS shares in given filesystems
