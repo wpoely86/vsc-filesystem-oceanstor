@@ -38,6 +38,7 @@ import ssl
 import time
 
 from collections import namedtuple
+from enum import Enum
 
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
@@ -54,12 +55,15 @@ OCEANSTOR_API_PATH = ["api", "v2"]
 OCEANSTOR_JSON_SEP = (",", ":")
 
 # Quota type equivalents in OceanStor
-OCEANSTOR_QUOTA_TYPE = {
-    "fileset": 1,
-    "user": 2,
-    "group": 3,
-}
-OCEANSTOR_QUOTA_TYPE_NAME = {v: k for k, v in OCEANSTOR_QUOTA_TYPE.items()}
+class OceanStorQuotaType(Enum):
+    fileset = 1
+    user = 2
+    group = 3
+
+class Typ2Param(Enum):
+    FILESET = 'fileset'
+    USR = 'user'
+    GRP = 'group'
 
 OCEANSTOR_QUOTA_PARENT_TYPE = {
     "filesystem": 40,
@@ -1041,7 +1045,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, KeyError)
 
         # Set extra filesetname attribute for fileset quotas
-        if storage_quota["quota"] == OCEANSTOR_QUOTA_TYPE["fileset"]:
+        if storage_quota["quota"] == OceanStorQuotaType.fileset.value:
             storage_quota["filesetname"] = storage_quota["name"]
         else:
             storage_quota["filesetname"] = None
@@ -1080,7 +1084,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             else:
                 # Request quotas for this filesystem and all its filesets
                 dbg_prefix = ""
-                fs_quotas = {qt: dict() for qt in OCEANSTOR_QUOTA_TYPE}
+                fs_quotas = {qt.name: dict() for qt in OceanStorQuotaType}
 
                 query_params = {
                     "parent_type": OCEANSTOR_QUOTA_PARENT_TYPE["filesystem"],
@@ -1094,13 +1098,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 if status and "data" in response:
                     # add each quota to its category in current filesystem
                     for quota_obj in response["data"]:
-                        quota_type = OCEANSTOR_QUOTA_TYPE_NAME[quota_obj["quota_type"]]
+                        quota_type = OceanStorQuotaType(quota_obj["quota_type"]).name
                         quota_attributes = self._convert_quota_attributes(quota_obj)
                         fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
 
                 quotas[fs_name] = fs_quotas
 
-            quota_count = ["%s = %s" % (qt, len(quotas[fs_name][qt])) for qt in OCEANSTOR_QUOTA_TYPE]
+            quota_count = ["%s = %s" % (qt.name, len(quotas[fs_name][qt.name])) for qt in OceanStorQuotaType]
             self.log.debug(
                 "%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(quota_count)
             )
@@ -1127,7 +1131,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "getQuota: can't get quota on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in OCEANSTOR_QUOTA_TYPE:
+        if typ not in [qt.name for qt in OceanStorQuotaType]:
             errmsg = "getQuota: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -1286,7 +1290,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "setQuota: can't set quota on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in OCEANSTOR_QUOTA_TYPE:
+        if typ not in [qt.name for qt in OceanStorQuotaType]:
             errmsg = "setQuota: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -1339,7 +1343,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Create new quota
         query_params["parent_id"] = quota_parent
         query_params["parent_type"] = OCEANSTOR_QUOTA_PARENT_TYPE[parent_type]
-        query_params["quota_type"] = OCEANSTOR_QUOTA_TYPE[typ]
+        query_params["quota_type"] = OceanStorQuotaType[typ].value
 
         if typ in ["user", "group"]:
             # settings for user/group quotas
@@ -1448,7 +1452,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "setGrace: can't set grace on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in OCEANSTOR_QUOTA_TYPE:
+        if typ not in [qt.name for qt in OceanStorQuotaType]:
             errmsg = "setGrace: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
