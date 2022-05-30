@@ -264,7 +264,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_storagepools = dict()
         self.oceanstor_filesystems = dict()
         self.oceanstor_filesets = dict()
+
         self.oceanstor_quotas = dict()
+        self.quota_types = Typ2Param
 
         self.oceanstor_nfsshares = dict()
         self.oceanstor_nfsclients = dict()
