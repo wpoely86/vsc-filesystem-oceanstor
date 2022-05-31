@@ -1210,7 +1210,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         quota_type = QuotaType(quota_obj["quota_type"]).name
                         quota_attributes = self._convert_quota_attributes(quota_obj)
                         if quota_attributes:
-                            fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
+                            # add any non-default quotas as is
+                            if quota_attributes["ownerName"] != "All User":
+                                fs_quotas[quota_type].update(
+                                    {quota_obj["id"]: StorageQuota(**quota_attributes)}
+                                )
 
                 quotas[fs_name] = fs_quotas
 
