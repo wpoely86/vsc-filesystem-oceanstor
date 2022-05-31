@@ -43,11 +43,13 @@ from enum import Enum
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
 
+from vsc.config.base import VSC
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
 from vsc.utils.rest import Client, RestClient
 from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener, is_py2
+
 
 OCEANSTOR_API_PATH = ["api", "v2"]
 
@@ -613,8 +615,57 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError:
             errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
             self.log.raiseException(errmsg, OceanStorOperationError)
+        else:
+            self.log.debug("Name of fileset ID '%s': %s", fileset_id, fileset_name)
+            return fileset_name
 
-        return fileset_name
+    def get_quota_fileset(self, quota_id, filesystem_name):
+        """
+        Return ID and name of fileset with given quota
+
+        @type quota_id: string with quota ID
+        @type filesystem_name: string with device name
+        """
+        fileset_id = None
+
+        quotas = self.list_quota(devices=filesystem_name)
+
+        if quota_id in quotas[filesystem_name][Typ2Param.FILESET.value]:
+            fs_quota = quotas[filesystem_name][Typ2Param.FILESET.value][quota_id]
+            # verify that this fileset quota is attached to a dtree
+            if fs_quota.parentType == 16445:
+                fileset_id = fs_quota.parentId
+
+        fileset_name = self.get_fileset_name(fileset_id, filesystem_name)
+        self.log.debug("Quota '%s' is attached to fileset: [%s] %s", quota_id, fileset_id, fileset_name)
+
+        return fileset_id, fileset_name
+
+    def get_quota_owner(self, quota_id, filesystem_name):
+        """
+        Return UID/GID of given quota ID
+
+        @type quota_id: string with quota ID
+        @type filesystem_name: string with device name
+        """
+        owner_id = None
+
+        quotas = self.list_quota(devices=filesystem_name)
+
+        if quota_id in quotas[filesystem_name][Typ2Param.USR.value]:
+            usrgrp_quota = quotas[filesystem_name][Typ2Param.USR.value][quota_id]
+        elif quota_id in quotas[filesystem_name][Typ2Param.GRP.value]:
+            usrgrp_quota = quotas[filesystem_name][Typ2Param.GRP.value][quota_id]
+        else:
+            errmsg = "User/Group quota '%s' not found in OceanStor filesystem '%s'" % (quota_id, filesystem_name)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+
+        vsc = VSC()
+        owner_name = usrgrp_quota.ownerName
+        owner_id = vsc.user_uid_institute_map[owner_name[:3]][0] + int(owner_name[3:])
+        self.log.debug("Quota '%s' is owned by: [%s] %s", quota_id, owner_id, owner_name)
+
+        return owner_id
 
     def list_nfs_shares(self, filesystemnames=None, update=False):
         """
