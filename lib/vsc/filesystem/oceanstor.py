@@ -57,7 +57,7 @@ OCEANSTOR_API_PATH = ["api", "v2"]
 OCEANSTOR_JSON_SEP = (",", ":")
 
 # Quota type equivalents in OceanStor
-class OceanStorQuotaType(Enum):
+class QuotaType(Enum):
     fileset = 1
     user = 2
     group = 3
@@ -1157,7 +1157,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             else:
                 # Request quotas for this filesystem and all its filesets
                 dbg_prefix = ""
-                fs_quotas = {qt.name: dict() for qt in OceanStorQuotaType}
+                fs_quotas = {qt.name: dict() for qt in QuotaType}
 
                 query_params = {
                     "parent_type": OCEANSTOR_QUOTA_PARENT_TYPE["filesystem"],
@@ -1171,14 +1171,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 if status and "data" in response:
                     # add each quota to its category in current filesystem
                     for quota_obj in response["data"]:
-                        quota_type = OceanStorQuotaType(quota_obj["quota_type"]).name
+                        quota_type = QuotaType(quota_obj["quota_type"]).name
                         quota_attributes = self._convert_quota_attributes(quota_obj)
                         if quota_attributes:
                             fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
 
                 quotas[fs_name] = fs_quotas
 
-            quota_count = ["%s = %s" % (qt.name, len(quotas[fs_name][qt.name])) for qt in OceanStorQuotaType]
+            quota_count = ["%s = %s" % (qt.name, len(quotas[fs_name][qt.name])) for qt in QuotaType]
             self.log.debug(
                 "%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(quota_count)
             )
@@ -1205,7 +1205,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "getQuota: can't get quota on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in [qt.name for qt in OceanStorQuotaType]:
+        if typ not in [qt.name for qt in QuotaType]:
             errmsg = "getQuota: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -1364,7 +1364,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "setQuota: can't set quota on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in [qt.name for qt in OceanStorQuotaType]:
+        if typ not in [qt.name for qt in QuotaType]:
             errmsg = "setQuota: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -1417,7 +1417,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Create new quota
         query_params["parent_id"] = quota_parent
         query_params["parent_type"] = OCEANSTOR_QUOTA_PARENT_TYPE[parent_type]
-        query_params["quota_type"] = OceanStorQuotaType[typ].value
+        query_params["quota_type"] = QuotaType[typ].value
 
         if typ in ["user", "group"]:
             # settings for user/group quotas
@@ -1526,7 +1526,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "setGrace: can't set grace on non-existing path '%s'" % quota_path
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        if typ not in [qt.name for qt in OceanStorQuotaType]:
+        if typ not in [qt.name for qt in QuotaType]:
             errmsg = "setGrace: unknown quota type '%s'" % typ
             self.log.raiseException(errmsg, OceanStorOperationError)
 
@@ -1570,7 +1570,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type quota: StorageQuota named tuple
 
-        @returns: grace expiration on blocks and grace expiration on files 
+        @returns: grace expiration on blocks and grace expiration on files
         """
 
         block_expire = OceanStorOperations._get_grace_expiration(
@@ -1614,4 +1614,3 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             expired = (False, None)
 
         return expired
-
