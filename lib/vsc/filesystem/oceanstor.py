@@ -621,7 +621,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def get_quota_fileset(self, quota_id, filesystem_name):
         """
-        Return ID and name of fileset with given quota
+        Return ID of fileset with given quota
 
         @type quota_id: string with quota ID
         @type filesystem_name: string with device name
@@ -629,17 +629,21 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         fileset_id = None
 
         quotas = self.list_quota(devices=filesystem_name)
+        fileset_quotas = quotas[filesystem_name][Typ2Param.FILESET.value]
 
-        if quota_id in quotas[filesystem_name][Typ2Param.FILESET.value]:
-            fs_quota = quotas[filesystem_name][Typ2Param.FILESET.value][quota_id]
+        if quota_id in fileset_quotas:
+            quota_obj = fileset_quotas[quota_id]
             # verify that this fileset quota is attached to a dtree
-            if fs_quota.parentType == 16445:
-                fileset_id = fs_quota.parentId
+            if quota_obj.parentType == 16445:
+                fileset_id = quota_obj.parentId
 
-        fileset_name = self.get_fileset_name(fileset_id, filesystem_name)
-        self.log.debug("Quota '%s' is attached to fileset: [%s] %s", quota_id, fileset_id, fileset_name)
+        if fileset_id is None:
+            errmsg = "Fileset quota '%s' not found in OceanStor filesystem '%s'" % (quota_id, filesystem_name)
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
-        return fileset_id, fileset_name
+        self.log.debug("Quota '%s' is attached to fileset: %s", quota_id, fileset_id)
+
+        return fileset_id
 
     def get_quota_owner(self, quota_id, filesystem_name):
         """
