@@ -919,6 +919,44 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return (oceanstor_fs_id, oceanstor_dtree_id, local_mount, oceanstor_path)
 
+    def get_fileset_local_path(self, fileset_id):
+        """
+        Return local path where fileset is mounted
+
+        @type fileset_id: string with ID of dtree fileset
+        """
+        fileset_path = None
+
+        self._local_filesystems()
+
+        for mount in [fs for fs in self.localfilesystems if fs[self.localfilesystemnaming.index("oceanstor")]]:
+            mount_id = mount[self.localfilesystemnaming.index("oceanstor")]
+            mount_path = mount[self.localfilesystemnaming.index("mountpoint")]
+            if mount_id == fileset_id:
+                # fileset is directly mounted here
+                fileset_path = mount_path
+            else:
+                # check if mounted volume contains this fileset
+                filesystem_id, _ = mount_id.split("@", 1)
+                try:
+                    mount_filesystem = next(iter(self.select_filesystems(filesystem_id, byid=True)))
+                except ValueError:
+                    self.log.debug("Fileset '%s' not found in mounted fileset '%s'", fileset_id, mount_id)
+                else:
+                    # get filesets in this filesystem
+                    mount_filesystem_fs = self.list_filesets(devices=mount_filesystem)
+                    mount_filesystem_fs = mount_filesystem_fs[mount_filesystem]
+                    if fileset_id in mount_filesystem_fs:
+                        mount_fileset = mount_filesystem_fs[fileset_id]
+                        inner_path = os.path.join(mount_fileset["parent_dir"], mount_fileset["name"])[1:]
+                        fileset_path = os.path.join(mount_path, inner_path)
+                    else:
+                        self.log.debug("Fileset '%s' not found in mounted filesystem '%s'", fileset_id, mount_id)
+
+        self.log.debug("Local path of fileset '%s': %s", fileset_id, fileset_path)
+
+        return fileset_path
+
     def make_fileset(
         self,
         new_fileset_path,
