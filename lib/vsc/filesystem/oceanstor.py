@@ -1177,13 +1177,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Filter by filesystem name (devices in GPFS)
         if devices is None:
             filesystems = self.list_filesystems()
-            filesystemnames = list(filesystems.keys())
+            devices = list(filesystems.keys())
         elif isinstance(devices, str):
-            filesystemnames = [devices]
-        else:
-            filesystemnames = devices
+            devices = [devices]
 
-        filter_fs = self.select_filesystems(filesystemnames)
+        filter_fs = self.select_filesystems(devices)
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
 
         quotas = dict()
