@@ -291,6 +291,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_filesets = dict()
 
         self.oceanstor_quotas = dict()
+        self.oceanstor_defaultquotas = dict()
         self.quota_types = Typ2Param
 
         self.oceanstor_nfsshares = dict()
@@ -1215,19 +1216,16 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_fs = self.select_filesystems(devices)
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
 
-        # Default quotas are not cached
-        if alluser:
-            update = True
-
         # Keep regular quotas and user default quotas in separate lists
         quotas = dict()
         default_quotas = dict()
         
         for fs_name, fs_id in filter_fs.items():
-            if not update and fs_name in self.oceanstor_quotas:
+            if not update and fs_name in self.oceanstor_quotas and fs_name in self.oceanstor_defaultquotas:
                 # Use cached data
                 dbg_prefix = "(cached) "
                 quotas[fs_name] = self.oceanstor_quotas[fs_name]
+                default_quotas[fs_name] = self.oceanstor_defaultquotas[fs_name]
             else:
                 # Request quotas for this filesystem and all its filesets
                 dbg_prefix = ""
@@ -1267,6 +1265,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Store all regular quotas in selected filesystems
         self.oceanstor_quotas.update(quotas)
+        self.oceanstor_defaultquotas.update(default_quotas)
 
         if alluser:
             return default_quotas
@@ -1347,12 +1346,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Filter user/group quotas by given uid/gid
         if typ in ["user", "group"] and who is not None:
             if who == '*':
-                # default quotas are not cached, query them
-                default_quotas = self.list_quota(devices=ostor_fs_name, alluser=True)
-                default_typ_quotas = default_quotas[ostor_fs_name][typ]
+                # default quotas are cached in their own list
+                default_typ_quotas = self.oceanstor_defaultquotas[ostor_fs_name][typ]
                 attached_quotas = {fq.id: fq for fq in default_typ_quotas.values() if fq.parentId == parent_id}
             else:
-                # select quotas this user/group
+                # select quotas for this user/group
                 attached_quotas = {fq.id: fq for fq in attached_quotas.values() if fq.ownerName == str(who)}
                 dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
                 self.log.debug(dbgmsg, parent_id, who, ", ".join(attached_quotas))
