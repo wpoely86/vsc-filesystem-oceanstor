@@ -657,7 +657,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if quota_id in fileset_quotas:
             quota_obj = fileset_quotas[quota_id]
             # verify that this fileset quota is attached to a dtree
-            if quota_obj.parentType == 16445:
+            if quota_obj.parentType == OCEANSTOR_QUOTA_PARENT_TYPE["dtree"]:
                 fileset_id = quota_obj.parentId
 
         if fileset_id is None:
@@ -1184,7 +1184,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, KeyError)
 
         # Extra filesetname attribute needed by AP
-        if storage_quota["parentType"] == 16445:
+        if storage_quota["parentType"] == OCEANSTOR_QUOTA_PARENT_TYPE["dtree"]:
             # set to parent fileset ID of quota
             storage_quota["filesetname"] = storage_quota["parentId"]
         else:
