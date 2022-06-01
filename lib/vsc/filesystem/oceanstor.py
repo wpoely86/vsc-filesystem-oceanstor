@@ -1346,12 +1346,16 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Filter user/group quotas by given uid/gid
         if typ in ["user", "group"] and who is not None:
-            if who == "*":
-                who = "All User"  # special case: default quota '*' registers as 'All User'
-
-            attached_quotas = {fq.id: fq for fq in attached_quotas.values() if fq.ownerName == str(who)}
-            dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
-            self.log.debug(dbgmsg, parent_id, who, ", ".join(attached_quotas))
+            if who == '*':
+                # default quotas are not cached, query them
+                default_quotas = self.list_quota(devices=ostor_fs_name, alluser=True)
+                default_typ_quotas = default_quotas[ostor_fs_name][typ]
+                attached_quotas = {fq.id: fq for fq in default_typ_quotas.values() if fq.parentId == parent_id}
+            else:
+                # select quotas this user/group
+                attached_quotas = {fq.id: fq for fq in attached_quotas.values() if fq.ownerName == str(who)}
+                dbgmsg = "getQuota: quotas attached to parent ID '%s' for user/group '%s': %s"
+                self.log.debug(dbgmsg, parent_id, who, ", ".join(attached_quotas))
 
         return parent_id, tuple(attached_quotas.keys())
 
@@ -1366,31 +1370,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
-        # TODO: remove (1) and (2) once OceanStor supports setting user quotas on non-empty filesets
-        # (1) Always set default user quotas for all users, instead of quotas specific to each user
-        self.log.warning("Quota for user '%s' replaced with a default user quota", user)
-        user = "*"
-        # (2) User quotas in VOs are temporarily frozen to 100% of VO fileset quota
-        if "brussel/vo" in obj:
-            _, quota_id = self._get_quota(None, obj, "fileset")
-            if quota_id:
-                # get fileset quota for this dtree
-                fileset_quotas = [
-                    self.oceanstor_quotas[fs]["fileset"]
-                    for fs in self.oceanstor_quotas
-                    if "fileset" in self.oceanstor_quotas[fs]
-                ]
-                # only 1 fileset quota can exist per dtree
-                user_dtree_quota = [q[quota_id[0]] for q in fileset_quotas if quota_id[0] in q][0]
-                hard = user_dtree_quota["space_hard_quota"]
-                self.log.debug("Updated user default hard quota in '%s' to 100%% of dtree quota: %s bytes", obj, hard)
-                soft = user_dtree_quota["space_soft_quota"]
-                self.log.debug("Updated user default soft quota in '%s' to 100%% of dtree quota: %s bytes", obj, soft)
-            else:
-                # new VO with fileset quota missing, create it with user limits
-                self.log.debug("Creating fileset quota in '%s' with soft limit: %s bytes", obj, soft)
-                self.set_fileset_quota(soft, obj, hard=hard, inode_soft=inode_soft, inode_hard=inode_hard)
-
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
         self._set_quota(who=user, obj=obj, typ="user", **quota_limits)
 
@@ -1429,7 +1408,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
         self._set_quota(who=fileset_name, obj=fileset_path, typ="fileset", **quota_limits)
 
-        # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
+        # TODO: remove once OceanStor supports creating user quotas on non-empty filesets
         # User quotas in VOs are temporarily frozen to 100% of VO fileset quota
         if "brussel/vo" in fileset_path:
             # Update default user quota in this VO to 100% of fileset quota
