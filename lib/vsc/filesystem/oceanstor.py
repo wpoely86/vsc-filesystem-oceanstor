@@ -1219,7 +1219,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Keep regular quotas and user default quotas in separate lists
         quotas = dict()
         default_quotas = dict()
-        
+
         for fs_name, fs_id in filter_fs.items():
             if not update and fs_name in self.oceanstor_quotas and fs_name in self.oceanstor_defaultquotas:
                 # Use cached data
@@ -1507,8 +1507,21 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         if self.dry_run:
             self.log.info("(dryrun) New quota creation query: %s", query_params)
-        else:
+            return
+
+        # Attempt the creation of the quota
+        # TODO: remove the warning whenever OceanStor allows creating quotas on non-empty filesets
+        try:
             _, response = self.session.file_service.fs_quota.post(body=query_params)
+        except RuntimeError:
+            if typ in ["user", "group"]:
+                warnmsg = (
+                    "Creation of %s quota for '%s' in '%s' failed, but a default quota should be in place. Moving on."
+                )
+                self.log.warning(warnmsg, typ, who, quota_parent)
+            else:
+                raise
+        else:
             new_quota_id = response["data"]["id"]
             self.log.info("Quota '%s' created succesfully", new_quota_id)
 
