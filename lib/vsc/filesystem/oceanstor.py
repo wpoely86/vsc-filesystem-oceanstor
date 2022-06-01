@@ -62,10 +62,12 @@ class QuotaType(Enum):
     user = 2
     group = 3
 
+
 class Typ2Param(Enum):
     FILESET = 'fileset'
     USR = 'user'
     GRP = 'group'
+
 
 OCEANSTOR_QUOTA_PARENT_TYPE = {
     "filesystem": 40,
@@ -102,11 +104,30 @@ NFS_LOOKUP_CACHE_TIME = 60
 VSC_NETWORK_LABEL = "VSC"
 
 # Quota settings
-StorageQuota = namedtuple('StorageQuota',
-    ['id', 'name', 'quota', 'filesetname',
-     'blockUsage', 'blockQuota', 'blockLimit', 'blockInDoubt', 'blockGrace',
-     'filesUsage', 'filesQuota', 'filesLimit', 'filesInDoubt', 'filesGrace',
-     'ownerName', 'ownerType', 'parentId', 'parentType'])
+StorageQuota = namedtuple(
+    'StorageQuota',
+    [
+        'id',
+        'name',
+        'quota',
+        'filesetname',
+        'blockUsage',
+        'blockQuota',
+        'blockLimit',
+        'blockInDoubt',
+        'blockGrace',
+        'filesUsage',
+        'filesQuota',
+        'filesLimit',
+        'filesInDoubt',
+        'filesGrace',
+        'ownerName',
+        'ownerType',
+        'parentId',
+        'parentType',
+    ],
+)
+
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -1131,7 +1152,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - vstore_id: <ignored>
         """
         try:
-            byte_conversion = 1024**quota["space_unit_type"]
+            byte_conversion = 1024 ** quota["space_unit_type"]
         except KeyError as err:
             self.log.raiseException("Missing space_unit_type attribute in quota object", KeyError)
 
@@ -1221,9 +1242,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         if quota_attributes:
                             # add any non-default quotas as is
                             if quota_attributes["ownerName"] != "All User":
-                                fs_quotas[quota_type].update(
-                                    {quota_obj["id"]: StorageQuota(**quota_attributes)}
-                                )
+                                fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
 
                 quotas[fs_name] = fs_quotas
 
