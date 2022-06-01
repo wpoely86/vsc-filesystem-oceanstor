@@ -1193,11 +1193,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return storage_quota
 
-    def list_quota(self, devices=None, update=False):  # pylint: disable=arguments-differ
+    def list_quota(self, devices=None, update=False, alluser=False):  # pylint: disable=arguments-differ
         """
         Get quota info for all filesystems for all quota types (fileset, user, group)
 
         @type devices: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
+        @type alluser: bool to list user default quotas
 
         set self.oceanstor_quotas to dict with
         : keys per filesystemName and value is dict with
@@ -1214,7 +1215,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_fs = self.select_filesystems(devices)
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
 
+        # Default quotas are not cached
+        if alluser:
+            update = True
+
+        # Keep regular quotas and user default quotas in separate lists
         quotas = dict()
+        default_quotas = dict()
+        
         for fs_name, fs_id in filter_fs.items():
             if not update and fs_name in self.oceanstor_quotas:
                 # Use cached data
@@ -1224,6 +1232,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Request quotas for this filesystem and all its filesets
                 dbg_prefix = ""
                 fs_quotas = {qt.name: dict() for qt in QuotaType}
+                fs_default_quotas = {qt.name: dict() for qt in QuotaType}
 
                 query_params = {
                     "parent_type": OCEANSTOR_QUOTA_PARENT_TYPE["filesystem"],
@@ -1240,10 +1249,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         quota_type = QuotaType(quota_obj["quota_type"]).name
                         quota_attributes = self._convert_quota_attributes(quota_obj)
                         if quota_attributes:
-                            # add any non-default quotas as is
-                            if quota_attributes["ownerName"] != "All User":
-                                fs_quotas[quota_type].update({quota_obj["id"]: StorageQuota(**quota_attributes)})
+                            quota_entry = {quota_obj["id"]: StorageQuota(**quota_attributes)}
+                            if quota_entry[quota_obj["id"]].ownerName == "All User":
+                                # user default quota
+                                fs_default_quotas[quota_type].update(quota_entry)
+                            else:
+                                # regular quota
+                                fs_quotas[quota_type].update(quota_entry)
 
+                default_quotas[fs_name] = fs_default_quotas
                 quotas[fs_name] = fs_quotas
 
             quota_count = ["%s = %s" % (qt.name, len(quotas[fs_name][qt.name])) for qt in QuotaType]
@@ -1251,10 +1265,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 "%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(quota_count)
             )
 
-        # Store all quotas in selected filesystems
+        # Store all regular quotas in selected filesystems
         self.oceanstor_quotas.update(quotas)
 
-        return quotas
+        if alluser:
+            return default_quotas
+        else:
+            return quotas
 
     def _get_quota(self, who, obj, typ="user"):
         """
