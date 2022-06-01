@@ -260,6 +260,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         super(OceanStorOperations, self).__init__()
 
+        self.dry_run = False
+
         self.supportedfilesystems = ["nfs", "nfs4"]
         self.ignorerealpathmismatch = True  # allow working through symlinks
 
@@ -1087,11 +1089,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         }
         self.log.debug("Creating dtree with: %s", new_dtree_params)
 
-        _, result = self.session.file_service.dtrees.post(body=new_dtree_params)
-        self.log.info("New dtree fileset created succesfully: %s", result)
+        if self.dry_run:
+            self.log.info("(dryrun) New dtree fileset creation query: %s", new_dtree_params)
+        else:
+            _, result = self.session.file_service.dtrees.post(body=new_dtree_params)
+            self.log.info("New dtree fileset created succesfully: %s", result)
 
-        # Rescan all filesets and force update the info
-        self.list_filesets(update=True)
+            # Rescan all filesets and force update the info
+            self.list_filesets(update=True)
 
     @staticmethod
     def _convert_quota_attributes(quota):
@@ -1440,8 +1445,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Modify existing quota
         query_params["id"] = quota_id
-        self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Quota '%s' updated succesfully", quota_id)
+        if self.dry_run:
+            self.log.info("(dryrun) Quota '%s' update query: %s", quota_id, query_params)
+        else:
+            self.session.file_service.fs_quota.put(body=query_params)
+            self.log.info("Quota '%s' updated succesfully", quota_id)
 
     def _new_quota_api(self, quota_parent, typ="user", who=None, **kwargs):
         """
@@ -1484,9 +1492,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # directory quotas target dtrees (0) by default, switch to filesystems (1)
             query_params["directory_quota_target"] = 1
 
-        _, response = self.session.file_service.fs_quota.post(body=query_params)
-        new_quota_id = response["data"]["id"]
-        self.log.info("Quota '%s' created succesfully", new_quota_id)
+        if self.dry_run:
+            self.log.info("(dryrun) New quota creation query: %s", query_params)
+        else:
+            _, response = self.session.file_service.fs_quota.post(body=query_params)
+            new_quota_id = response["data"]["id"]
+            self.log.info("Quota '%s' created succesfully", new_quota_id)
 
     def _parse_quota_limits(self, soft=None, hard=None, inode_soft=None, inode_hard=None):
         """
@@ -1604,8 +1615,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             "id": quota_id,
             "soft_grace_time": grace,
         }
-        self.session.file_service.fs_quota.put(body=query_params)
-        self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
+
+        if self.dry_run:
+            self.log.info("(dryrun) Grace period of quota '%s' update query: %s", quota_id, query_params)
+        else:
+            self.session.file_service.fs_quota.put(body=query_params)
+            self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
 
     @staticmethod
     def determine_grace_periods(quota):
