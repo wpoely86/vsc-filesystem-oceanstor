@@ -298,6 +298,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.account = account
 
+        self.vsc = VSC()
+
         # OceanStor API URL
         self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
         self.log.info("URL of OceanStor REST API server: %s", self.api_url)
@@ -674,8 +676,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type quota_id: string with quota ID
         @type filesystem_name: string with device name
         """
-        owner_id = None
-
         quotas = self.list_quota(devices=filesystem_name)
 
         if quota_id in quotas[filesystem_name][Typ2Param.USR.value]:
@@ -686,10 +686,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "User/Group quota '%s' not found in OceanStor filesystem '%s'" % (quota_id, filesystem_name)
             self.log.raiseException(errmsg, OceanStorOperationError)
 
-        vsc = VSC()
-        owner_name = usrgrp_quota.ownerName
-        owner_id = vsc.user_uid_institute_map[owner_name[:3]][0] + int(owner_name[3:])
-        self.log.debug("Quota '%s' is owned by: [%s] %s", quota_id, owner_id, owner_name)
+        owner_id = self.vsc.uid_to_uid_number(usrgrp_quota.ownerName)
+        self.log.debug("Quota '%s' is owned by: [%s] %s", quota_id, owner_id, usrgrp_quota.ownerName)
 
         return owner_id
 
