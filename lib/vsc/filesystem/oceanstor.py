@@ -1320,9 +1320,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             elif len(fileset) > 1:
                 # there cannot be more than one match for any path
                 errmsg = "getQuota: found multiple filesets mathing path '%s' in OceanStor filesystem '%s': %s"
-                self.log.raiseException(
-                    errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError
-                )
+                self.log.raiseException(errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError)
             else:
                 # no fileset found, continue looking up the path
                 dbgmsg = "getQuota: no fileset found matching path '%s' in OceanStor filesystem '%s'"
