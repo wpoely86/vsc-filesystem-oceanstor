@@ -1692,6 +1692,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # over quota
             if soft < hard:
                 # grace not expired: we only know the maximum grace time
+                # TODO: review method to retrieve the actual remaining grace time
                 grace_time = grace * 24 * 3600
             else:
                 # grace expired
