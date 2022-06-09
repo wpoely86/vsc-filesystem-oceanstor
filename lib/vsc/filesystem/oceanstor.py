@@ -94,15 +94,6 @@ OCEANSTOR_QUOTA_DOMAIN_TYPE = {
     "NIS": 3,
 }
 
-# Soft quota to hard quota factor
-OCEANSTOR_QUOTA_FACTOR = 1.05
-
-# NFS lookup cache lifetime in seconds
-NFS_LOOKUP_CACHE_TIME = 60
-
-# Keyword identifying the VSC network zone
-VSC_NETWORK_LABEL = "VSC"
-
 # Quota settings
 StorageQuota = namedtuple(
     'StorageQuota',
@@ -127,6 +118,15 @@ StorageQuota = namedtuple(
         'parentType',
     ],
 )
+
+# Soft quota to hard quota factor
+OCEANSTOR_QUOTA_FACTOR = 1.05
+# NFS lookup cache lifetime in seconds
+NFS_LOOKUP_CACHE_TIME = 60
+# Keyword identifying the VSC network zone
+VSC_NETWORK_LABEL = "VSC"
+# Label of local filesystems items with their OceanStor IDs
+LOCAL_FS_OCEANSTOR = "oceanstor"
 
 
 class OceanStorClient(Client):
@@ -853,7 +853,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.list_filesystems()
 
         # Add filesystem name in OceanStor to list of attributes of local filesystems
-        self.localfilesystemnaming.append("oceanstor")
+        self.localfilesystemnaming.append(LOCAL_FS_OCEANSTOR)
 
         # NFS share paths and their IDs
         oceanstor_shares = self.list_nfs_shares()
@@ -921,7 +921,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         local_fs = self.what_filesystem(local_path)
 
         # Check NFS mount source
-        oceanstor_id = local_fs[self.localfilesystemnaming.index("oceanstor")]
+        oceanstor_id = local_fs[self.localfilesystemnaming.index(LOCAL_FS_OCEANSTOR)]
         if oceanstor_id is None:
             errmsg = "NFS mount of '%s' is not from OceanStor" % local_path
             self.log.raiseException(errmsg, OceanStorOperationError)
@@ -955,8 +955,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self._local_filesystems()
 
-        for mount in [fs for fs in self.localfilesystems if fs[self.localfilesystemnaming.index("oceanstor")]]:
-            mount_id = mount[self.localfilesystemnaming.index("oceanstor")]
+        for mount in [fs for fs in self.localfilesystems if fs[self.localfilesystemnaming.index(LOCAL_FS_OCEANSTOR)]]:
+            mount_id = mount[self.localfilesystemnaming.index(LOCAL_FS_OCEANSTOR)]
             mount_path = mount[self.localfilesystemnaming.index("mountpoint")]
             if mount_id == fileset_id:
                 # fileset is directly mounted here
