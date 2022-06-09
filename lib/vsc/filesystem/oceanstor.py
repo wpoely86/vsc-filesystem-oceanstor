@@ -1298,27 +1298,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         ostor_fs_id, ostor_dtree_id, ostor_mount, ostor_path = self._identify_local_path(quota_path)
         ostor_fs_name = next(iter(self.select_filesystems(ostor_fs_id, byid=True)))
 
-        if ostor_path == "/":
-            # Target path is already an NFS mount
-            if int(ostor_dtree_id) == 0:
-                # mount point is a filesystem
-                parent_id = ostor_fs_id
-            else:
-                # mount point is a dtree fileset
-                parent_id = "%s@%s" % (ostor_fs_id, ostor_dtree_id)
-            self.log.debug("getQuota: quota path is root of NFS mount for OceanStor object: %s", parent_id)
-        else:
-            # Target path can be a fileset in a mounted filesystem
-            if int(ostor_dtree_id) > 0:
-                errmsg = (
-                    "getQuota: quota path '%s' is in a fileset '%s', but it cannot be a fileset on its own"
-                    "(OceanStor does not support nested filesets)"
-                )
-                self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
-
-            # Find a fileset in the filesystem with the corresponding parent directory
-            fs_filesets = self.list_filesets(devices=ostor_fs_name)
-            fileset_parent, fileset_name = os.path.split(ostor_path)
+        # Look for filesets with the corresponding parent directory
+        parent_id = None
+        fs_filesets = self.list_filesets(devices=ostor_fs_name)
+        # start at the bottom of the path and move upwards
+        fileset_parent = ostor_path
+        while fileset_parent != "/":
+            fileset_parent, fileset_name = os.path.split(fileset_parent)
             fileset = [
                 fs["id"]
                 for fs in fs_filesets[ostor_fs_name].values()
@@ -1326,15 +1312,31 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             ]
 
             if len(fileset) == 1:
+                # found the fileset in this path, stop searching
                 parent_id = fileset[0]
                 dbgmsg = "getQuota: quota path '%s' is fileset '%s' in OceanStor filesystem '%s'"
                 self.log.debug(dbgmsg, quota_path, parent_id, ostor_mount)
+                break
             elif len(fileset) > 1:
-                errmsg = "getQuota: found multiple filesets mathing quota path '%s' in OceanStor filesystem '%s': %s"
-                self.log.raiseException(errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError)
+                # there cannot be more than one match for any path
+                errmsg = "getQuota: found multiple filesets mathing path '%s' in OceanStor filesystem '%s': %s"
+                self.log.raiseException(
+                    errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError
+                )
             else:
-                errmsg = "getQuota: could not find any fileset matching quota path '%s' in OceanStor filesystem '%s'"
-                self.log.raiseException(errmsg % (quota_path, ostor_mount), OceanStorOperationError)
+                # no fileset found, continue looking up the path
+                dbgmsg = "getQuota: no fileset found matching path '%s' in OceanStor filesystem '%s'"
+                self.log.debug(dbgmsg % (fileset_parent, ostor_mount))
+
+        if not parent_id:
+            # Target path is root of NFS mount (fileset_parent == '/')
+            if int(ostor_dtree_id) == 0:
+                # mount point is a filesystem
+                parent_id = ostor_fs_id
+            else:
+                # mount point is a dtree fileset
+                parent_id = "%s@%s" % (ostor_fs_id, ostor_dtree_id)
+            self.log.debug("getQuota: quota path is root of NFS mount for OceanStor object: %s", parent_id)
 
         # Find quotas attached to parent object
         fs_quotas = self.list_quota(devices=ostor_fs_name)
