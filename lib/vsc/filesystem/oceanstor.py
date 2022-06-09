@@ -1190,12 +1190,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return storage_quota
 
-    def list_quota(self, devices=None, update=False, alluser=False):  # pylint: disable=arguments-differ
+    def list_quota(self, devices=None, update=False, only_default=False):  # pylint: disable=arguments-differ
         """
         Get quota info for all filesystems for all quota types (fileset, user, group)
+        Regular quotas and default quotas are kept in separate class attributes
+        By default, return the list of regular quotas
 
         @type devices: list of filesystem names (if string: 1 filesystem; if None: all known filesystems)
-        @type alluser: bool to list user default quotas
+        @type only_default: bool to return list of default quotas
 
         set self.oceanstor_quotas to dict with
         : keys per filesystemName and value is dict with
@@ -1263,7 +1265,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_quotas.update(quotas)
         self.oceanstor_defaultquotas.update(default_quotas)
 
-        if alluser:
+        if only_default:
             return default_quotas
         else:
             return quotas
