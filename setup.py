@@ -37,7 +37,7 @@ import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ad
 
 install_requires = [
-    'vsc-config',
+    'vsc-config >= 3.10.7',
     'vsc-filesystems',
 ]
 
