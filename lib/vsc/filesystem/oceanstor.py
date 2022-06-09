@@ -281,8 +281,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         super(OceanStorOperations, self).__init__()
 
-        self.dry_run = False
-
         self.supportedfilesystems = ["nfs", "nfs4"]
         self.ignorerealpathmismatch = True  # allow working through symlinks
 
