@@ -1141,7 +1141,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - space_advisory_quota: <ignored>
         - space_hard_quota: blockLimit
         - space_soft_quota: blockQuota
-        - space_unit_type: all block quotas are converted to bytes
+        - space_unit_type: all block quotas are converted to KiB
         - space_used: blockUsage
         - space_used_rate: <ignored>
         - usr_grp_owner_name: ownerName
@@ -1152,6 +1152,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             byte_conversion = 1024 ** quota["space_unit_type"]
         except KeyError as err:
             self.log.raiseException("Missing space_unit_type attribute in quota object", KeyError)
+        else:
+            # AP expects block quotas in KiB, convert units down to bytes and to KiB
+            kib_conversion = lambda q: int((q * byte_conversion) // 1024)
 
         try:
             storage_quota = {
@@ -1159,9 +1162,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 "name": quota["resuse_name"],
                 "quota": quota["quota_type"],
                 "filesetname": None,
-                "blockUsage": quota["space_used"] * byte_conversion,
-                "blockQuota": quota["space_soft_quota"] * byte_conversion,
-                "blockLimit": quota["space_hard_quota"] * byte_conversion,
+                "blockUsage": kib_conversion(quota["space_used"]),
+                "blockQuota": kib_conversion(quota["space_soft_quota"]),
+                "blockLimit": kib_conversion(quota["space_hard_quota"]),
                 "blockInDoubt": 0,
                 "blockGrace": quota["soft_grace_time"],
                 "filesUsage": quota["file_used"],
@@ -1537,6 +1540,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "setQuota: At least one type of quota (block or inode) should be specified"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
+        # Set quotas in bytes, analogous to GPFS
+        # vsc.administration converts quotas from AP in KiB to bytes
         query_params = {"space_unit_type": OCEANSTOR_QUOTA_UNIT_TYPE["B"]}  # bytes
 
         if soft:
