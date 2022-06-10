@@ -37,15 +37,19 @@ import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ad
 
 install_requires = [
+    'vsc-config >= 3.10.7',
     'vsc-filesystems',
 ]
 
 if sys.version_info < (3, 3):
     # Backport of the 3.3+ ipaddress module
     install_requires.append('ipaddress')
+if sys.version_info < (3, 4):
+    # Backport of the 3.4+ Enum module 
+    install_requires.append('enum34')
 
 PACKAGE = {
-    'version': '0.5.7',
+    'version': '0.6.0',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],
