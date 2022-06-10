@@ -1587,23 +1587,35 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return query_params
 
-    def set_user_grace(self, obj, grace=0):
+    def set_user_grace(self, obj, grace=0, who=None):
         """
         Set the grace period for user quota.
 
         @type obj: string with local path
         @type grace: grace period in seconds
+        @type who: identifier (UID or username)
         """
-        self._set_grace(obj, "user", grace)
+        # convert UIDs to usernames
+        username = str(who)
+        if username.isdigit():
+            username = self.vsc.uid_number_to_uid(who)
 
-    def set_group_grace(self, obj, grace=0):
+        self._set_grace(obj, "user", grace, who=username)
+
+    def set_group_grace(self, obj, grace=0, who=None):
         """
         Set the grace period for group quota.
 
         @type obj: string with local path
         @type grace: grace period in seconds
+        @type who: identifier (GID or group name)
         """
-        self._set_grace(obj, "group", grace)
+        # convert GID to group names
+        groupname = str(who)
+        if groupname.isdigit():
+            groupname = self.vsc.uid_number_to_uid(who)
+
+        self._set_grace(obj, "group", grace, who=groupname)
 
     def set_fileset_grace(self, obj, grace=0):
         """
