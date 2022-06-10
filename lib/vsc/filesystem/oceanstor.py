@@ -1532,7 +1532,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             _, response = self.session.file_service.fs_quota.post(body=query_params)
         except RuntimeError:
-            if typ in ["user", "group"]:
+            if typ == "user":
                 warnmsg = (
                     "Creation of %s quota for '%s' in '%s' failed, but a default quota should be in place. Moving on."
                 )
@@ -1648,8 +1648,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         quota_parent, quotas = self._get_quota(who, obj, typ)
 
         if not quotas:
-            errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
-            self.log.raiseException(errmsg, OceanStorOperationError)
+            if typ == "user" and who is not None:
+                # User quotas might be missing, but a default quota should be in place
+                # TODO: remove whenever OceanStor allows creating quotas on non-empty filesets
+                dbgmsg = (
+                    "setGrace: %s quota for '%s' in '%s' not found, "
+                    "but a default quota should be in place. Moving on."
+                )
+                self.log.debug(dbgmsg, typ, who, quota_parent)
+            else:
+                errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Set grace period
         grace_days = int(round(grace / (24 * 3600)))
