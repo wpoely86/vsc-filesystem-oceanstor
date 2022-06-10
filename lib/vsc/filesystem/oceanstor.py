@@ -1626,12 +1626,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         self._set_grace(obj, "fileset", grace)
 
-    def _set_grace(self, obj, typ, grace=0):
+    def _set_grace(self, obj, typ, grace=0, who=None):
         """Set the grace period for a given type of objects
 
         @type obj: the path
         @type typ: string with type of quota: fileset, user or group
         @type grace: int with grace period in seconds
+        @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
 
         quota_path = self._sanity_check(obj)
@@ -1644,7 +1645,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Find all existing quotas attached to local object
-        quota_parent, quotas = self._get_quota(None, obj, typ)
+        quota_parent, quotas = self._get_quota(who, obj, typ)
 
         if not quotas:
             errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
