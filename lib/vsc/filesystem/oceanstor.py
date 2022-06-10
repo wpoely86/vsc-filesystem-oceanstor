@@ -1366,28 +1366,38 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Set quota for a user on a given object (i.e. local path)
 
         @type soft: integer with soft limit in bytes
-        @type user: string identifying the user
+        @type user: string with UID or username
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # convert UIDs to usernames
+        username = str(user)
+        if username.isdigit():
+            username = self.vsc.uid_number_to_uid(user)
+
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
-        self._set_quota(who=user, obj=obj, typ="user", **quota_limits)
+        self._set_quota(who=username, obj=obj, typ="user", **quota_limits)
 
     def set_group_quota(self, soft, group, obj=None, hard=None, inode_soft=None, inode_hard=None):
         """
         Set quota for a group on a given object (i.e. local path)
 
         @type soft: integer with soft limit in bytes
-        @type group: string identifying the group
+        @type group: string with GID or group names
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # convert GID to group names
+        groupname = str(group)
+        if groupname.isdigit():
+            groupname = self.vsc.uid_number_to_uid(group)
+
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
-        self._set_quota(who=group, obj=obj, typ="group", **quota_limits)
+        self._set_quota(who=groupname, obj=obj, typ="group", **quota_limits)
 
     def set_fileset_quota(self, soft, fileset_path, fileset_name=None, hard=None, inode_soft=None, inode_hard=None):
         """
