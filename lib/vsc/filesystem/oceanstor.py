@@ -123,6 +123,7 @@ StorageQuota = namedtuple(
 OCEANSTOR_QUOTA_FACTOR = 1.05
 # Default quota values
 DEFAULT_USER_BLOCK = 1048576  # bytes
+DEFAULT_GRACE_DAYS = 7
 # NFS lookup cache lifetime in seconds
 NFS_LOOKUP_CACHE_TIME = 60
 # Keyword identifying the VSC network zone
@@ -1054,11 +1055,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
+        # Set default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
         # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
         block_soft = DEFAULT_USER_BLOCK
         inodes_soft = int(inodes_max // OCEANSTOR_QUOTA_FACTOR)
         self.set_user_quota(block_soft, "*", obj=dtree_fullpath, inode_soft=inodes_soft)
+        grace_time = DEFAULT_GRACE_DAYS * 24 * 3600
+        self.set_user_grace(dtree_fullpath, grace=grace_time, who="*")
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir="/"):
         """
