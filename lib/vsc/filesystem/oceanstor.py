@@ -43,7 +43,7 @@ from enum import Enum
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
 
-from vsc.config.base import VSC
+from vsc.config.base import DEFAULT_INODE_MAX, VSC
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
@@ -121,6 +121,8 @@ StorageQuota = namedtuple(
 
 # Soft quota to hard quota factor
 OCEANSTOR_QUOTA_FACTOR = 1.05
+# Default quota values
+DEFAULT_USER_BLOCK = 1048576  # bytes
 # NFS lookup cache lifetime in seconds
 NFS_LOOKUP_CACHE_TIME = 60
 # Keyword identifying the VSC network zone
@@ -987,7 +989,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         fileset_name=None,
         parent_fileset_name=None,
         afm=None,
-        inodes_max=1048576,
+        inodes_max=DEFAULT_INODE_MAX,
         inodes_prealloc=None,
         nfs_cache=False,
     ):
@@ -1052,10 +1054,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes soft limit
+        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
         # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
-        block_soft = 1048576  # bytes
-        self.set_user_quota(block_soft, "*", obj=dtree_fullpath, inode_soft=inodes_max)
+        block_soft = DEFAULT_USER_BLOCK
+        inodes_soft = int(inodes_max // OCEANSTOR_QUOTA_FACTOR)
+        self.set_user_quota(block_soft, "*", obj=dtree_fullpath, inode_soft=inodes_soft)
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir="/"):
         """
@@ -1473,6 +1476,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type typ: string with type of quota: fileset, user or group
         @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
+        if 'inode_soft' not in kwargs or kwargs['inode_soft'] is None:
+            # Always set the inode limits of new quotas, OceanStor default is too big for the AP
+            kwargs['inode_soft'] = int(DEFAULT_INODE_MAX // OCEANSTOR_QUOTA_FACTOR)
+
         query_params = self._parse_quota_limits(**kwargs)
 
         # Type of parent object
