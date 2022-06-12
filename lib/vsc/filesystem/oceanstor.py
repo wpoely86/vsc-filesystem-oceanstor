@@ -123,6 +123,7 @@ StorageQuota = namedtuple(
 OCEANSTOR_QUOTA_FACTOR = 1.05
 # Default quota values
 DEFAULT_USER_BLOCK = 1048576  # bytes
+DEFAULT_GRACE_DAYS = 7
 # NFS lookup cache lifetime in seconds
 NFS_LOOKUP_CACHE_TIME = 60
 # Keyword identifying the VSC network zone
@@ -1054,11 +1055,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set a default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
+        # Set default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
         # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
         block_soft = DEFAULT_USER_BLOCK
         inodes_soft = int(inodes_max // OCEANSTOR_QUOTA_FACTOR)
         self.set_user_quota(block_soft, "*", obj=dtree_fullpath, inode_soft=inodes_soft)
+        grace_time = DEFAULT_GRACE_DAYS * 24 * 3600
+        self.set_user_grace(dtree_fullpath, grace=grace_time, who="*")
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir="/"):
         """
@@ -1366,28 +1369,38 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Set quota for a user on a given object (i.e. local path)
 
         @type soft: integer with soft limit in bytes
-        @type user: string identifying the user
+        @type user: string with UID or username
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # convert UIDs to usernames
+        username = str(user)
+        if username.isdigit():
+            username = self.vsc.uid_number_to_uid(user)
+
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
-        self._set_quota(who=user, obj=obj, typ="user", **quota_limits)
+        self._set_quota(who=username, obj=obj, typ="user", **quota_limits)
 
     def set_group_quota(self, soft, group, obj=None, hard=None, inode_soft=None, inode_hard=None):
         """
         Set quota for a group on a given object (i.e. local path)
 
         @type soft: integer with soft limit in bytes
-        @type group: string identifying the group
+        @type group: string with GID or group names
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
         @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
+        # convert GID to group names
+        groupname = str(group)
+        if groupname.isdigit():
+            groupname = self.vsc.uid_number_to_uid(group)
+
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
-        self._set_quota(who=group, obj=obj, typ="group", **quota_limits)
+        self._set_quota(who=groupname, obj=obj, typ="group", **quota_limits)
 
     def set_fileset_quota(self, soft, fileset_path, fileset_name=None, hard=None, inode_soft=None, inode_hard=None):
         """
@@ -1522,7 +1535,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             _, response = self.session.file_service.fs_quota.post(body=query_params)
         except RuntimeError:
-            if typ in ["user", "group"]:
+            if typ == "user":
                 warnmsg = (
                     "Creation of %s quota for '%s' in '%s' failed, but a default quota should be in place. Moving on."
                 )
@@ -1577,23 +1590,35 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return query_params
 
-    def set_user_grace(self, obj, grace=0):
+    def set_user_grace(self, obj, grace=0, who=None):
         """
         Set the grace period for user quota.
 
         @type obj: string with local path
         @type grace: grace period in seconds
+        @type who: identifier (UID or username)
         """
-        self._set_grace(obj, "user", grace)
+        # convert UIDs to usernames
+        username = str(who)
+        if username.isdigit():
+            username = self.vsc.uid_number_to_uid(who)
 
-    def set_group_grace(self, obj, grace=0):
+        self._set_grace(obj, "user", grace, who=username)
+
+    def set_group_grace(self, obj, grace=0, who=None):
         """
         Set the grace period for group quota.
 
         @type obj: string with local path
         @type grace: grace period in seconds
+        @type who: identifier (GID or group name)
         """
-        self._set_grace(obj, "group", grace)
+        # convert GID to group names
+        groupname = str(who)
+        if groupname.isdigit():
+            groupname = self.vsc.uid_number_to_uid(who)
+
+        self._set_grace(obj, "group", grace, who=groupname)
 
     def set_fileset_grace(self, obj, grace=0):
         """
@@ -1604,12 +1629,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         self._set_grace(obj, "fileset", grace)
 
-    def _set_grace(self, obj, typ, grace=0):
+    def _set_grace(self, obj, typ, grace=0, who=None):
         """Set the grace period for a given type of objects
 
         @type obj: the path
         @type typ: string with type of quota: fileset, user or group
         @type grace: int with grace period in seconds
+        @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
 
         quota_path = self._sanity_check(obj)
@@ -1622,11 +1648,20 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Find all existing quotas attached to local object
-        quota_parent, quotas = self._get_quota(None, obj, typ)
+        quota_parent, quotas = self._get_quota(who, obj, typ)
 
         if not quotas:
-            errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
-            self.log.raiseException(errmsg, OceanStorOperationError)
+            if typ == "user" and who is not None:
+                # User quotas might be missing, but a default quota should be in place
+                # TODO: remove whenever OceanStor allows creating quotas on non-empty filesets
+                dbgmsg = (
+                    "setGrace: %s quota for '%s' in '%s' not found, "
+                    "but a default quota should be in place. Moving on."
+                )
+                self.log.debug(dbgmsg, typ, who, quota_parent)
+            else:
+                errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Set grace period
         grace_days = int(round(grace / (24 * 3600)))
