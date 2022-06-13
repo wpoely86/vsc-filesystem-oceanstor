@@ -131,6 +131,15 @@ VSC_NETWORK_LABEL = "VSC"
 # Label of local filesystems items with their OceanStor IDs
 LOCAL_FS_OCEANSTOR = "oceanstor"
 
+# OceanStor does not support filesets with a different name than its root folder
+# Regex to convert between VSC and OceanStor fileset names
+BANNED_FILESET_NAMES = [
+    (
+        # - names of user folders grouped in filesets 100, 101,...
+        ('^vsc([0-9]{3})$', r'\1'),  # vsc123 > 123
+        ('^([0-9]{3})$', r'vsc\1'),  # 123 > vsc123
+    ),
+]
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -591,6 +600,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if isinstance(filesetnames, str):
                 filesetnames = [filesetnames]
 
+            # Convert VSC fileset name to OceanStor ones
+            for filter_id, filter_fs in enumerate(filesetnames):
+                for banned_fs in BANNED_FILESET_NAMES:
+                    filesetnames[filter_id] = re.sub(*banned_fs[0], filter_fs)
+
             self.log.debug("Filtering dtree filesets by name: %s", ", ".join(filesetnames))
 
             # REST API does not accept multiple names in the filter of 'file_service/dtrees'
@@ -624,8 +638,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Convert VSC fileset name to OceanStor ones
-        # - names of user folders grouped in filesets 100, 101,...
-        fileset_name = re.sub('^vsc([0-9]{3})$', r'\1', fileset_name)
+        for banned_fs in BANNED_FILESET_NAMES:
+            fileset_name = re.sub(*banned_fs[0], fileset_name)
 
         for fset in filesystem_fsets.values():
             if fset["name"] == fileset_name:
@@ -649,8 +663,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Convert non-standard names to be VSC compliant
-        # - names of user folders grouped in filesets 100, 101,...
-        fileset_name = re.sub('^([0-9]{3})$', r'vsc\1', fileset_name)
+        for banned_fs in BANNED_FILESET_NAMES:
+            fileset_name = re.sub(*banned_fs[1], fileset_name)
 
         self.log.debug("VSC name of fileset ID '%s': %s", fileset_id, fileset_name)
         return fileset_name
@@ -1026,6 +1040,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # OceanStor does not support filesets with a different name than its root folder
         # Use name of root folder as fileset name in OceanStor
         ostor_dtree_name = os.path.basename(dtree_fullpath)
+
+        for banned_fs in BANNED_FILESET_NAMES:
+            if re.match(banned_fs[0][0], ostor_dtree_name):
+                errmsg = "Cannot create fileset with forbidden name: %s"
+                self.log.raiseException(errmsg % (ostor_dtree_name), OceanStorOperationError)
 
         if fileset_name is None:
             vsc_fileset_name = ostor_dtree_name
