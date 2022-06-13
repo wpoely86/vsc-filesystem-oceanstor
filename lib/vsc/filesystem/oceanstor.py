@@ -630,7 +630,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def get_fileset_name(self, fileset_id, filesystem_name):
         """
-        Return name of fileset
+        Return the expected name of the fileset by the VSC AP
 
         @type fileset_id: string with fileset ID
         @type filesystem_name: string with device name
@@ -642,9 +642,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError:
             errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
             self.log.raiseException(errmsg, OceanStorOperationError)
-        else:
-            self.log.debug("Name of fileset ID '%s': %s", fileset_id, fileset_name)
-            return fileset_name
+
+        # Convert non-standard names to be VSC compliant
+        # - names of user folders grouped in filesets 100, 101,...
+        fileset_name = re.sub('^([0-9]{3})$', r'vsc\1', fileset_name)
+
+        self.log.debug("VSC name of fileset ID '%s': %s", fileset_id, fileset_name)
+        return fileset_name
 
     def get_quota_fileset(self, quota_id, filesystem_name):
         """
@@ -1004,7 +1008,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @type new_fileset_path: string with the full path in the local system of the new fileset
         @type fileset_name: string with the name of the new fileset
-                            (if not None, fileset_name is appended to new_fileset_path)
         @type inodes_max: int with initial limit of inodes for this fileset
         @type nfs_cache: bool enabling wait time to deal with NFS lookup cache
         """
@@ -1014,13 +1017,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         del parent_fileset_name
 
         dtree_fullpath = self._sanity_check(new_fileset_path)
-        dtree_name = os.path.basename(dtree_fullpath)
 
-        if fileset_name is not None and fileset_name != dtree_name:
-            # Append the fileset name to the given path
-            dtree_fullpath = os.path.join(dtree_fullpath, fileset_name)
-            dtree_fullpath = self._sanity_check(dtree_fullpath)
-            dtree_name = fileset_name
+        # OceanStor does not support filesets with a different name than its root folder
+        # Use name of root folder as fileset name in OceanStor
+        ostor_dtree_name = os.path.basename(dtree_fullpath)
+
+        if fileset_name is None:
+            vsc_fileset_name = ostor_dtree_name
+        else:
+            vsc_fileset_name = fileset_name
 
         # Check existence of path in local filesystem
         if self.exists(dtree_fullpath):
@@ -1046,10 +1051,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg % (dtree_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
 
         # Send API request to create the new dtree fileset
-        dbgmsg = "Sending request for new dtree fileset '%s' in OceanStor filesystem '%s' with parent directory '%s'"
-        self.log.debug(dbgmsg, fileset_name, ostor_fs_name, ostor_parentdir)
+        dbgmsg = "Sending request for new dtree fileset %s in OceanStor filesystem '%s' with parent directory '%s'"
+        new_dtree_name = "'%s' (VSC: %s)" % (ostor_dtree_name, vsc_fileset_name)
+        self.log.debug(dbgmsg, new_dtree_name, ostor_fs_name, ostor_parentdir)
 
-        self.make_fileset_api(fileset_name, ostor_fs_name, parent_dir=ostor_parentdir)
+        self.make_fileset_api(ostor_dtree_name, ostor_fs_name, parent_dir=ostor_parentdir)
 
         if nfs_cache:
             # wait for NFS lookup cache to expire to be able to access new fileset
