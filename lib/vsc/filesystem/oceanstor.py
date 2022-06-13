@@ -606,21 +606,26 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def get_fileset_info(self, filesystem_name, fileset_name):
         """
-        Get all the relevant information for a given fileset.
+        Get all the relevant information for a given VSC fileset.
 
         @type filesystem_name: string representing a OceanStor filesystem
-        @type fileset_name: string representing a OceanStor fileset name (not the ID)
+        @type fileset_name: string representing a VSC fileset name (not the ID)
 
         @returns: dictionary with the fileset information or None if the fileset cannot be found
 
         @raise OceanStorOperationError: if there is no filesystem with the given name
         """
         self.list_filesets(devices=filesystem_name)
+
         try:
             filesystem_fsets = self.oceanstor_filesets[filesystem_name]
         except KeyError:
             errmsg = "OceanStor has no fileset information for filesystem %s" % filesystem_name
             self.log.raiseException(errmsg, OceanStorOperationError)
+
+        # Convert VSC fileset name to OceanStor ones
+        # - names of user folders grouped in filesets 100, 101,...
+        fileset_name = re.sub('^vsc([0-9]{3})$', r'\1', fileset_name)
 
         for fset in filesystem_fsets.values():
             if fset["name"] == fileset_name:
