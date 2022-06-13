@@ -630,7 +630,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def get_fileset_name(self, fileset_id, filesystem_name):
         """
-        Return name of fileset
+        Return the expected name of the fileset by the VSC AP
 
         @type fileset_id: string with fileset ID
         @type filesystem_name: string with device name
@@ -642,9 +642,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError:
             errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
             self.log.raiseException(errmsg, OceanStorOperationError)
-        else:
-            self.log.debug("Name of fileset ID '%s': %s", fileset_id, fileset_name)
-            return fileset_name
+
+        # Convert non-standard names to be VSC compliant
+        # - names of user folders grouped in filesets 100, 101,...
+        fileset_name = re.sub('^([0-9]{3})$', r'vsc\1', fileset_name)
+
+        self.log.debug("VSC name of fileset ID '%s': %s", fileset_id, fileset_name)
+        return fileset_name
 
     def get_quota_fileset(self, quota_id, filesystem_name):
         """
