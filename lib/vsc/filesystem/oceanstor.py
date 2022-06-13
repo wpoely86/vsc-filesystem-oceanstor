@@ -136,10 +136,11 @@ LOCAL_FS_OCEANSTOR = "oceanstor"
 BANNED_FILESET_NAMES = [
     (
         # - names of user folders grouped in filesets 100, 101,...
-        ('^vsc([0-9]{3})$', r'\1'),  # vsc123 > 123
-        ('^([0-9]{3})$', r'vsc\1'),  # 123 > vsc123
+        (re.compile('^vsc([0-9]{3})$'), r'\1'),  # vsc123 > 123
+        (re.compile('^([0-9]{3})$'), r'vsc\1'),  # 123 > vsc123
     ),
 ]
+
 
 class OceanStorClient(Client):
     """Client for OceanStor REST API"""
@@ -603,7 +604,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # Convert VSC fileset name to OceanStor ones
             for filter_id, filter_fs in enumerate(filesetnames):
                 for banned_fs in BANNED_FILESET_NAMES:
-                    filesetnames[filter_id] = re.sub(*banned_fs[0], filter_fs)
+                    vsc_name_match, ostor_name_sub = banned_fs[0]
+                    filesetnames[filter_id] = vsc_name_match.sub(ostor_name_sub, filter_fs)
 
             self.log.debug("Filtering dtree filesets by name: %s", ", ".join(filesetnames))
 
@@ -639,7 +641,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Convert VSC fileset name to OceanStor ones
         for banned_fs in BANNED_FILESET_NAMES:
-            fileset_name = re.sub(*banned_fs[0], fileset_name)
+            vsc_name_match, ostor_name_sub = banned_fs[0]
+            fileset_name = vsc_name_match.sub(ostor_name_sub, fileset_name)
 
         for fset in filesystem_fsets.values():
             if fset["name"] == fileset_name:
@@ -664,7 +667,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Convert non-standard names to be VSC compliant
         for banned_fs in BANNED_FILESET_NAMES:
-            fileset_name = re.sub(*banned_fs[1], fileset_name)
+            ostor_name_match, vsc_name_sub = banned_fs[1]
+            fileset_name = ostor_name_match.sub(vsc_name_sub, fileset_name)
 
         self.log.debug("VSC name of fileset ID '%s': %s", fileset_id, fileset_name)
         return fileset_name
@@ -1042,7 +1046,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         ostor_dtree_name = os.path.basename(dtree_fullpath)
 
         for banned_fs in BANNED_FILESET_NAMES:
-            if re.match(banned_fs[0][0], ostor_dtree_name):
+            banned_fs_name = banned_fs[0][0]
+            if banned_fs_name.match(ostor_dtree_name):
                 errmsg = "Cannot create fileset with forbidden name: %s"
                 self.log.raiseException(errmsg % (ostor_dtree_name), OceanStorOperationError)
 
