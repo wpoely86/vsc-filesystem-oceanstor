@@ -309,8 +309,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_nfsclients = dict()
         self.oceanstor_nfsservers = dict()
 
-        self.account = account
-
         self.vsc = VSC()
 
         # OceanStor API URL
@@ -321,6 +319,20 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.session = OceanStorRestClient(self.api_url)
         # Get token for this session with user/password
         self.session.client.get_x_auth_token(username, password)
+
+        # Account details
+        self.account = self.get_account_id(account)
+
+    def get_account_id(self, account_name):
+        """
+        Query the ID an account name
+        """
+        filter_json = [{"name": account_name}]
+        filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
+        _, response = self.session.account.accounts.get(filter=filter_json)
+        ostor_account = response["data"][0]
+
+        return ostor_account
 
     def list_storage_pools(self, update=False):
         """
@@ -761,7 +773,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 filter_json = [{"fs_id": str(fs_id)}]
                 filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 query_params = {
-                    "account_name": self.account,
+                    "account_name": self.account["name"],
                     "filter": filter_json,
                 }
                 _, response = self.session.nas_protocol.nfs_share_list.get(**query_params)
@@ -827,7 +839,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 filter_json = [{"share_id": str(ns_id)}]
                 filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 query_params = {
-                    "account_name": self.account,
+                    "account_name": self.account["name"],
                     "filter": filter_json,
                 }
                 _, response = self.session.nas_protocol.nfs_share_auth_client_list.get(**query_params)
