@@ -419,21 +419,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         Set self.oceanstor_filesystems as dict with
         : keys per filesystemName and value is dict with
-        :: keys returned by OceanStor:
-        - atime_update_mode
-        - dentry_table_type
-        - dir_split_bitwidth
-        - dir_split_policy
+        :: selected keys from OceanStor:
         - id
-        - is_show_snap_dir
         - name
-        - qos_policy_id
-        - rdc
-        - record_id
-        - root_split_bitwidth
-        - running_status
         - storage_pool_id
         """
+        fs_attrs = ["id", "name", "storage_pool_id"]
 
         # Filter by requested storage pool
         # Support special case 'all' for downstream compatibility
@@ -455,10 +446,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             dbg_prefix = ""
             filesystems = dict()
             for sp_id in filter_sp:
-                filter_json = [{"storage_pool_id": str(sp_id)}]
+                # Query filesystems that belong to our account
+                filter_json = [{"account_id": self.account["id"], "storage_pool_id": str(sp_id)}]
                 filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
-                _, response = self.session.file_service.file_systems.get(filter=filter_json)
-                filesystems.update({fs["name"]: fs for fs in response["data"]})
+                _, response = self.session.converged_service.namespaces.get(filter=filter_json)
+                # Save selection of attributes for this filesystem
+                for fs in response["data"]:
+                    new_fs_record = {attr: fs[attr] for attr in fs_attrs}
+                    filesystems.update({fs["name"]: new_fs_record})
 
             # Update filesystems in the selected pools
             self.oceanstor_filesystems = filesystems
