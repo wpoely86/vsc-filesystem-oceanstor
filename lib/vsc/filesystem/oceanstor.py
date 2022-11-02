@@ -43,7 +43,7 @@ from enum import Enum
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
 
-from vsc.config.base import DEFAULT_INODE_MAX, VSC, VscStorage
+from vsc.config.base import DEFAULT_INODE_MAX, VO_INFIX, VSC, VscStorage
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
@@ -1111,7 +1111,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
             self.log.raiseException(errmsg % (ostor_dtree_name, ostor_parentdir), OceanStorOperationError)
         else:
-            if ostor_dtree_name[1:3] == 'vo':
+            if ostor_dtree_name[1:3] == VO_INFIX:
                 block_hard = vsc_fileset_storage.quota_vo
                 inode_hard = vsc_fileset_storage.quota_vo_inode
             else:
