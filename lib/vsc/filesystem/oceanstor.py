@@ -28,6 +28,9 @@ Interface for Huawei Pacific OceanStor
 @author: Alex Domingo (Vrije Universiteit Brussel)
 """
 
+from __future__ import print_function
+from future.utils import with_metaclass
+
 import json
 import os
 import re
@@ -39,9 +42,6 @@ from enum import Enum
 
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
-
-from __future__ import print_function
-from future.utils import with_metaclass
 
 from vsc.config.base import DEFAULT_INODE_MAX, VO_INFIX, VSC, VscStorage
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
