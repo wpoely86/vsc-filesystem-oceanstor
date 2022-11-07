@@ -310,6 +310,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.vsc = VSC()
         self.vscstorage = VscStorage()
+        self.vsc.get_vsc_options()
         self.host_institute = self.vsc.options.options.host_institute
 
         # OceanStor API URL
