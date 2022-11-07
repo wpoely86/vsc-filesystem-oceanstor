@@ -310,7 +310,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.vsc = VSC()
         self.vscstorage = VscStorage()
-        self.host_institute = os.getenv('VSC_INSTITUTE_LOCAL')
+        self.host_institute = vsc.options.options.host_institute
 
         # OceanStor API URL
         self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
