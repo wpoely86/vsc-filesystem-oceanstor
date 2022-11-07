@@ -310,7 +310,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.vsc = VSC()
         self.vscstorage = VscStorage()
-        self.institutes = [institute for institute in self.vscstorage if not institute.startswith('VSC')]
+        self.host_institute = os.getenv('VSC_INSTITUTE_LOCAL')
 
         # OceanStor API URL
         self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
@@ -1103,9 +1103,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             vsc_fileset_storage = [
                 stor
-                for inst in self.institutes
-                for stor in self.vscstorage[inst].values()
-                if stor.backend == 'oceanstor' and dtree_fullpath.startswith(stor.backend_mount_point)
+                for stor in self.vscstorage[self.host_institute].values()
+                if stor.backend == LOCAL_FS_OCEANSTOR and dtree_fullpath.startswith(stor.backend_mount_point)
             ][0]
         except IndexError as err:
             errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
