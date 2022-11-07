@@ -1,0 +1,25 @@
+# Execute tox tests with default targets
+# Use template from vub-hpc/azure-pipelines-template
+
+trigger:
+- main
+
+resources:
+  repositories:
+    # add vub-hpc/azure-pipelines-template repo
+    - repository: vub-hpc
+      type: github
+      endpoint: Github_HPC-VUB
+      name: vub-hpc/azure-pipelines-template
+      ref: refs/heads/vsc
+    # add hpcugent/vsc-config repo
+    - repository: vsc-config
+      type: github
+      endpoint: Github_HPC-VUB
+      name: vub-hpc/vsc-config
+
+# run tox test jobs
+jobs:
+  - template: run-tox-vsc-env.yml@vub-hpc
+    parameters:
+      vsc_requires: [vsc-config]
