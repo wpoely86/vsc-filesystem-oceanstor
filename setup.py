@@ -49,7 +49,7 @@ if sys.version_info < (3, 4):
     install_requires.append('enum34')
 
 PACKAGE = {
-    'version': '0.6.6',
+    'version': '0.6.7',
     'author': [ad],
     'maintainer': [ad],
     'setup_requires': ['vsc-install'],

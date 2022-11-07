@@ -43,7 +43,7 @@ from enum import Enum
 from ipaddress import IPv4Address, AddressValueError
 from socket import gethostbyname
 
-from vsc.config.base import DEFAULT_INODE_MAX, VSC
+from vsc.config.base import DEFAULT_INODE_MAX, VO_INFIX, VSC, VscStorage
 from vsc.filesystem.posix import PosixOperations, PosixOperationError
 from vsc.utils import fancylogger
 from vsc.utils.patterns import Singleton
@@ -121,8 +121,7 @@ StorageQuota = namedtuple(
 
 # Soft quota to hard quota factor
 OCEANSTOR_QUOTA_FACTOR = 1.05
-# Default quota values
-DEFAULT_USER_BLOCK = 1048576  # bytes
+# Default quota grace period
 DEFAULT_GRACE_DAYS = 7
 # NFS lookup cache lifetime in seconds
 NFS_LOOKUP_CACHE_TIME = 60
@@ -310,6 +309,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.oceanstor_nfsservers = dict()
 
         self.vsc = VSC()
+        self.vscstorage = VscStorage()
+        self.host_institute = vsc.options.options.host_institute
 
         # OceanStor API URL
         self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
@@ -1097,13 +1098,34 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # wait for NFS lookup cache to expire to be able to access new fileset
             time.sleep(NFS_LOOKUP_CACHE_TIME)
 
-        # Set default user quota: 1MB for blocks soft limit and inodes_max for inodes hard limit
+        # Set default user quota on blocks soft limit and inodes hard limit from settings in VscStorage
         # TODO: remove once OceanStor supports setting user quotas on non-empty filesets
-        block_soft = DEFAULT_USER_BLOCK
-        inodes_soft = int(inodes_max // OCEANSTOR_QUOTA_FACTOR)
-        self.set_user_quota(block_soft, "*", obj=dtree_fullpath, inode_soft=inodes_soft)
-        grace_time = DEFAULT_GRACE_DAYS * 24 * 3600
-        self.set_user_grace(dtree_fullpath, grace=grace_time, who="*")
+        try:
+            vsc_fileset_storage = [
+                stor
+                for stor in self.vscstorage[self.host_institute].values()
+                if stor.backend == LOCAL_FS_OCEANSTOR and dtree_fullpath.startswith(stor.backend_mount_point)
+            ][0]
+        except IndexError as err:
+            errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
+            self.log.raiseException(errmsg % (ostor_dtree_name, ostor_parentdir), OceanStorOperationError)
+        else:
+            if ostor_dtree_name[1:3] == VO_INFIX:
+                block_hard = vsc_fileset_storage.quota_vo
+                inode_hard = vsc_fileset_storage.quota_vo_inode
+            else:
+                block_hard = vsc_fileset_storage.quota_user
+                inode_hard = vsc_fileset_storage.quota_user_inode
+
+            block_hard *= 1024  # convert from kB to bytes
+            block_soft = int(block_hard // OCEANSTOR_QUOTA_FACTOR)
+            inode_soft = int(inode_hard // OCEANSTOR_QUOTA_FACTOR)
+            self.set_user_quota(
+                block_soft, "*", obj=dtree_fullpath, hard=block_hard, inode_soft=inode_soft, inode_hard=inode_hard
+            )
+
+            grace_time = DEFAULT_GRACE_DAYS * 24 * 3600
+            self.set_user_grace(dtree_fullpath, grace=grace_time, who="*")
 
     def make_fileset_api(self, fileset_name, filesystem_name, parent_dir="/"):
         """
