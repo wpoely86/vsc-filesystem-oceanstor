@@ -1028,7 +1028,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         inodes_max=DEFAULT_INODE_MAX,
         inodes_prealloc=None,
         nfs_cache=False,
-    ):
+    ):  # pylint: disable=unused-argument
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
