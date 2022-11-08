@@ -198,21 +198,20 @@ class OceanStorClient(Client):
 
         return status, response
 
-    def request(self, *args, **kwargs):
+    def request(self, method, url, body, headers, content_type=None):
         """
         Wrapper for Client.request() with HTTP error and exit code handling
-        Injects X-Auth-Token headers into teh query if present
+        Injects X-Auth-Token headers into the query if present
         """
-        # Inject X-Auth-Token into headers (args=(method, url, body, headers))
-        args = list(args)
-        if args[3] is None:
-            args[3] = {}
+        # Inject X-Auth-Token into headers
+        if headers is None:
+            headers = {}
         if self.x_auth_header:
-            args[3].update(self.x_auth_header)
+            headers.update(self.x_auth_header)
 
         # Execute request catching any HTTPerror
         try:
-            status, response = super(OceanStorClient, self).request(*args, **kwargs)
+            status, response = super(OceanStorClient, self).request(method, url, body, headers, content_type)
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
