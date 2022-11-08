@@ -226,7 +226,7 @@ class OceanStorClient(Client):
 
         try:
             exit_code = result["code"]
-        except TypeError as err:
+        except TypeError:
             # Some queries generate a response with an int result
             # e.g. GET 'data_service/storagepool'
             exit_code = result
@@ -1106,7 +1106,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 for stor in self.vscstorage[self.host_institute].values()
                 if stor.backend == LOCAL_FS_OCEANSTOR and dtree_fullpath.startswith(stor.backend_mount_point)
             ][0]
-        except IndexError as err:
+        except IndexError:
             errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
             self.log.raiseException(errmsg % (ostor_dtree_name, ostor_parentdir), OceanStorOperationError)
         else:
@@ -1220,7 +1220,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         try:
             byte_conversion = 1024 ** quota["space_unit_type"]
-        except KeyError as err:
+        except KeyError:
             fancylogger.getLogger().raiseException("Missing space_unit_type attribute in quota object", KeyError)
         else:
             # AP expects block quotas in KiB, convert units down to bytes and to KiB
