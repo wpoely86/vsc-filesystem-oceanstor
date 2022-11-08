@@ -45,7 +45,7 @@ if sys.version_info < (3, 3):
     # Backport of the 3.3+ ipaddress module
     install_requires.append('ipaddress')
 if sys.version_info < (3, 4):
-    # Backport of the 3.4+ Enum module 
+    # Backport of the 3.4+ Enum module
     install_requires.append('enum34')
 
 PACKAGE = {
