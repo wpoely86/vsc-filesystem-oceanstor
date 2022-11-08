@@ -9,13 +9,13 @@ resources:
     # add vub-hpc/azure-pipelines-template repo
     - repository: vub-hpc
       type: github
-      endpoint: Github_HPC-VUB
+      endpoint: vub-hpc
       name: vub-hpc/azure-pipelines-template
       ref: refs/heads/vsc
     # add hpcugent/vsc-config repo
     - repository: vsc-config
       type: github
-      endpoint: Github_HPC-VUB
+      endpoint: vub-hpc
       name: vub-hpc/vsc-config
 
 # run tox test jobs
