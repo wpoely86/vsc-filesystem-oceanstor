@@ -64,9 +64,9 @@ class QuotaType(Enum):
 
 
 class Typ2Param(Enum):
-    FILESET = 'fileset'
-    USR = 'user'
-    GRP = 'group'
+    FILESET = "fileset"
+    USR = "user"
+    GRP = "group"
 
 
 OCEANSTOR_QUOTA_PARENT_TYPE = {
@@ -96,26 +96,26 @@ OCEANSTOR_QUOTA_DOMAIN_TYPE = {
 
 # Quota settings
 StorageQuota = namedtuple(
-    'StorageQuota',
+    "StorageQuota",
     [
-        'id',
-        'name',
-        'quota',
-        'filesetname',
-        'blockUsage',
-        'blockQuota',
-        'blockLimit',
-        'blockInDoubt',
-        'blockGrace',
-        'filesUsage',
-        'filesQuota',
-        'filesLimit',
-        'filesInDoubt',
-        'filesGrace',
-        'ownerName',
-        'ownerType',
-        'parentId',
-        'parentType',
+        "id",
+        "name",
+        "quota",
+        "filesetname",
+        "blockUsage",
+        "blockQuota",
+        "blockLimit",
+        "blockInDoubt",
+        "blockGrace",
+        "filesUsage",
+        "filesQuota",
+        "filesLimit",
+        "filesInDoubt",
+        "filesGrace",
+        "ownerName",
+        "ownerType",
+        "parentId",
+        "parentType",
     ],
 )
 
@@ -135,8 +135,8 @@ LOCAL_FS_OCEANSTOR = "oceanstor"
 BANNED_FILESET_NAMES = [
     (
         # - names of user folders grouped in filesets 100, 101,...
-        (re.compile('^vsc([0-9]{3})$'), r'\1'),  # vsc123 > 123
-        (re.compile('^([0-9]{3})$'), r'vsc\1'),  # 123 > vsc123
+        (re.compile("^vsc([0-9]{3})$"), r"\1"),  # vsc123 > 123
+        (re.compile("^([0-9]{3})$"), r"vsc\1"),  # 123 > vsc123
     ),
 ]
 
@@ -150,7 +150,7 @@ class OceanStorClient(Client):
 
         # X-Auth-Token header
         self.x_auth_header = None
-        ssl_verify = kwargs.get('ssl_verify', True)
+        ssl_verify = kwargs.get("ssl_verify", True)
 
         if ssl_verify is False:
             # Disable verification of SSL certificates
@@ -198,21 +198,20 @@ class OceanStorClient(Client):
 
         return status, response
 
-    def request(self, *args, **kwargs):
+    def request(self, method, url, body, headers, content_type=None):
         """
         Wrapper for Client.request() with HTTP error and exit code handling
-        Injects X-Auth-Token headers into teh query if present
+        Injects X-Auth-Token headers into the query if present
         """
-        # Inject X-Auth-Token into headers (args=(method, url, body, headers))
-        args = list(args)
-        if args[3] is None:
-            args[3] = {}
+        # Inject X-Auth-Token into headers
+        if headers is None:
+            headers = {}
         if self.x_auth_header:
-            args[3].update(self.x_auth_header)
+            headers.update(self.x_auth_header)
 
         # Execute request catching any HTTPerror
         try:
-            status, response = super(OceanStorClient, self).request(*args, **kwargs)
+            status, response = super(OceanStorClient, self).request(method, url, body, headers, content_type)
         except HTTPError as err:
             errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
             fancylogger.getLogger().error(errmsg)
@@ -227,7 +226,7 @@ class OceanStorClient(Client):
 
         try:
             exit_code = result["code"]
-        except TypeError as err:
+        except TypeError:
             # Some queries generate a response with an int result
             # e.g. GET 'data_service/storagepool'
             exit_code = result
@@ -310,7 +309,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.vsc = VSC()
         self.vscstorage = VscStorage()
-        self.host_institute = vsc.options.options.host_institute
+        self.vsc.get_vsc_options()
+        self.host_institute = self.vsc.options.options.host_institute
 
         # OceanStor API URL
         self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
@@ -668,7 +668,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.list_filesets(devices=filesystem_name)
 
         try:
-            fileset_name = self.oceanstor_filesets[filesystem_name][fileset_id]['name']
+            fileset_name = self.oceanstor_filesets[filesystem_name][fileset_id]["name"]
         except KeyError:
             errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
             self.log.raiseException(errmsg, OceanStorOperationError)
@@ -1028,7 +1028,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         inodes_max=DEFAULT_INODE_MAX,
         inodes_prealloc=None,
         nfs_cache=False,
-    ):
+    ):  # pylint: disable=unused-argument
         """
         Create a new fileset in a NFS mounted filesystem from OceanStor
 
@@ -1106,7 +1106,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 for stor in self.vscstorage[self.host_institute].values()
                 if stor.backend == LOCAL_FS_OCEANSTOR and dtree_fullpath.startswith(stor.backend_mount_point)
             ][0]
-        except IndexError as err:
+        except IndexError:
             errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
             self.log.raiseException(errmsg % (ostor_dtree_name, ostor_parentdir), OceanStorOperationError)
         else:
@@ -1220,8 +1220,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         try:
             byte_conversion = 1024 ** quota["space_unit_type"]
-        except KeyError as err:
-            self.log.raiseException("Missing space_unit_type attribute in quota object", KeyError)
+        except KeyError:
+            fancylogger.getLogger().raiseException("Missing space_unit_type attribute in quota object", KeyError)
         else:
             # AP expects block quotas in KiB, convert units down to bytes and to KiB
             kib_conversion = lambda q: int((q * byte_conversion) // 1024)
@@ -1251,7 +1251,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             qa_miss = err.args[0]
             qa_avail = ", ".join(quota)
             errmsg = "Quota attribute '%s' not found. List of available attributes: %s" % (qa_miss, qa_avail)
-            self.log.raiseException(errmsg, KeyError)
+            fancylogger.getLogger().raiseException(errmsg, KeyError)
 
         # Extra filesetname attribute needed by AP
         if storage_quota["parentType"] == OCEANSTOR_QUOTA_PARENT_TYPE["dtree"]:
@@ -1387,14 +1387,15 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 dbgmsg = "getQuota: quota path '%s' is fileset '%s' in OceanStor filesystem '%s'"
                 self.log.debug(dbgmsg, quota_path, parent_id, ostor_mount)
                 break
-            elif len(fileset) > 1:
+
+            if len(fileset) > 1:
                 # there cannot be more than one match for any path
                 errmsg = "getQuota: found multiple filesets mathing path '%s' in OceanStor filesystem '%s': %s"
                 self.log.raiseException(errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError)
             else:
                 # no fileset found, continue looking up the path
                 dbgmsg = "getQuota: no fileset found matching path '%s' in OceanStor filesystem '%s'"
-                self.log.debug(dbgmsg % (fileset_parent, ostor_mount))
+                self.log.debug(dbgmsg, fileset_parent, ostor_mount)
 
         if not parent_id:
             # Target path is root of NFS mount (fileset_parent == '/')
@@ -1416,7 +1417,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Filter user/group quotas by given uid/gid
         if typ in ["user", "group"] and who is not None:
-            if who == '*':
+            if who == "*":
                 # default quotas are cached in their own list
                 default_typ_quotas = self.oceanstor_defaultquotas[ostor_fs_name][typ]
                 attached_quotas = {fq.id: fq for fq in default_typ_quotas.values() if fq.parentId == parent_id}
@@ -1553,9 +1554,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type typ: string with type of quota: fileset, user or group
         @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
-        if 'inode_soft' not in kwargs or kwargs['inode_soft'] is None:
+        if "inode_soft" not in kwargs or kwargs["inode_soft"] is None:
             # Always set the inode limits of new quotas, OceanStor default is too big for the AP
-            kwargs['inode_soft'] = int(DEFAULT_INODE_MAX // OCEANSTOR_QUOTA_FACTOR)
+            kwargs["inode_soft"] = int(DEFAULT_INODE_MAX // OCEANSTOR_QUOTA_FACTOR)
 
         query_params = self._parse_quota_limits(**kwargs)
 
