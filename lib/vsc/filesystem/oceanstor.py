@@ -1810,3 +1810,16 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             expired = (False, None)
 
         return expired
+
+    def list_snapshots(self, filesystem):
+        """ List the snapshots of the given filesystem """
+
+        fs = self.get_filesystem_info(filesystem)
+
+        filter_json = [{"file_system_id": int(fs["id"])}]
+        filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
+        _, response = self.session.file_service.snapshots.get(pagination=True, filter=filter_json)
+
+        snapshots = [snap["name"] for snap in response["data"]]
+
+        return snapshots
