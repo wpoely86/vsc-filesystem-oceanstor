@@ -1811,15 +1811,83 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return expired
 
-    def list_snapshots(self, filesystem):
+    def list_snapshots(self, filesystem, fileset=None):
         """ List the snapshots of the given filesystem """
 
         fs = self.get_filesystem_info(filesystem)
+        filter_json = {"file_system_id": int(fs["id"])}
 
-        filter_json = [{"file_system_id": int(fs["id"])}]
-        filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
+        if fileset is not None:
+            dtree = self.get_fileset_info(filesystem, fileset)
+            filter_json.update({"dtree_id": dtree["id"]})
+
+        filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
         _, response = self.session.file_service.snapshots.get(pagination=True, filter=filter_json)
 
         snapshots = [snap["name"] for snap in response["data"]]
 
         return snapshots
+
+    def create_filesystem_snapshot(self, fsname, snapname, filesets=None):
+        """
+        Create a filesystem snapshot. If filesets is None, it's full system snapshots
+        else the snapshot is limited to the list of filesets given.
+
+        @type fsname: string representing the name of the filesystem
+        @type snapname: string representing the name of the new snapshot
+        @type filesets: list of fileset names to take a snapshots of
+        """
+        if filesets is not None:
+            # fileset/dtree snapshot
+            if not isinstance(filesets, list):
+                filesets = [filesets]
+
+            for fileset in filesets:
+                if self.get_fileset_info(fsname, fileset) is None:
+                    self.log.error("Cannot create snapshot: fileset %s not found on filesystem %s!", fileset, fsname)
+                    print("Cannot create snapshot: fileset %s not found on filesystem %s!", fileset, fsname)
+                    return 0
+
+                # the snapshot namespace of all filesets is shared in OceanStor
+                # create unique snapshot name per fileset
+                fileset_snapname = "%s_%s" % (fileset, snapname)
+
+                new_snap_status = self._new_snapshot_api(fileset_snapname, fsname, fileset)
+        else:
+            # filesystem snapshot
+            new_snap_status = self._new_snapshot_api(snapname, fsname, None)
+
+        return new_snap_status
+
+    def _new_snapshot_api(self, snap_name, fs_name, fileset_name=None):
+        """
+        Create new snapshot in OceanStor
+
+        @type snap_name: string representing the name of the new snapshot
+        @type fs_name: name of the filesystem of the new snapshot
+        @type fileset_name: name of the dtree fileset of the new snapshot
+        """
+        snapshots = self.list_snapshots(fs_name, fileset_name)
+        if snap_name in snapshots:
+            self.log.error("Snapshot with name '%s' already exists for filesystem %s!", snap_name, fs_name)
+            print("Snapshot with name '%s' already exists for filesystem %s!", snap_name, fs_name)
+            return 0
+
+        query_params = {
+            "name": str(snap_name),
+            "file_system_name": fs_name,
+        }
+
+        if fileset_name is not None:
+            query_params.update({"dtree_name": fileset_name})
+
+        if self.dry_run:
+            self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
+            print("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
+        else:
+            _, response = self.session.file_service.snapshots.post(body=query_params)
+            new_snap_id = response["data"]["id"]
+            self.log.info("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
+            print("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
+
+        return True
