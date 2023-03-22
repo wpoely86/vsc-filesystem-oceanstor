@@ -1824,6 +1824,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         if fileset is not None:
             dtree = self.get_fileset_info(filesystem, fileset)
+            if dtree is None:
+                err_msg = "Snapshot query failed: fileset '%s' not found in filesystem '%s'" % (filesystem, fileset)
+                self.log.raiseException(err_msg, OceanStorOperationError)
             filter_json.update({"dtree_id": dtree["id"]})
 
         filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
@@ -1945,4 +1948,3 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
 
         return True
-
