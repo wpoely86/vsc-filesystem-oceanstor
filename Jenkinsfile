@@ -9,9 +9,8 @@ node {
         sh 'git clean -fxd'
     }
     stage('test') {
-        sh 'python2.7 -V'
-        sh 'python -m easy_install -U --user tox'
-        sh 'export PATH=$PWD/.vsc-tox/bin:$PATH && export PYTHONPATH=$PWD/.vsc-tox/lib/python$(python -c "import sys; print(\\"%s.%s\\" % sys.version_info[:2])")/site-packages:$PYTHONPATH && tox -v -c tox.ini'
+        sh 'pip3 install --ignore-installed --prefix $PWD/.vsc-tox tox'
+        sh 'export PATH=$PWD/.vsc-tox/bin:$PATH && export PYTHONPATH=$PWD/.vsc-tox/lib/python$(python3 -c "import sys; print(\\"%s.%s\\" % sys.version_info[:2])")/site-packages:$PYTHONPATH && tox -v -c tox.ini'
         sh 'rm -r $PWD/.vsc-tox'
     }
 }
