@@ -154,12 +154,12 @@ API_RESPONSE = {
         },
     },
     "file_service.snapshots.post": {
-        'data': {
-            'id': '128849018880@34595',
+        "data": {
+            "id": "128849018880@34595",
         },
-        'result': {
-            'code': 0,
-            'description': '',
+        "result": {
+            "code": 0,
+            "description": "",
         },
     },
     "file_service.snapshots.delete": {
@@ -408,7 +408,9 @@ class StorageTest(TestCase):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT"), True)
         self.assertEqual(O.create_filesystem_snapshot("test", "SNAP_TEST_01"), 0)
-        self.assertRaises(oceanstor.OceanStorOperationError, O.create_filesystem_snapshot, "nonexistent", "NEW_SNAPSHOT")
+        self.assertRaises(
+            oceanstor.OceanStorOperationError, O.create_filesystem_snapshot, "nonexistent", "NEW_SNAPSHOT"
+        )
         self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT", filesets="dttest"), True)
         self.assertEqual(O.create_filesystem_snapshot("test", "SNAP_TEST_01", filesets="dttest"), 0)
         self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT", filesets=["dttest"]), True)
@@ -419,5 +421,6 @@ class StorageTest(TestCase):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         self.assertEqual(O.delete_filesystem_snapshot("test", "SNAP_TEST_01"), True)
         self.assertEqual(O.delete_filesystem_snapshot("test", "NONEXISTENT"), 0)
-        self.assertRaises(oceanstor.OceanStorOperationError, O.delete_filesystem_snapshot, "nonexistent", "SNAP_TEST_01")
-
+        self.assertRaises(
+            oceanstor.OceanStorOperationError, O.delete_filesystem_snapshot, "nonexistent", "SNAP_TEST_01"
+        )
