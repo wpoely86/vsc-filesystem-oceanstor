@@ -153,6 +153,22 @@ API_RESPONSE = {
             "description": "",
         },
     },
+    "file_service.snapshots.post": {
+        'data': {
+            'id': '128849018880@34595',
+        },
+        'result': {
+            'code': 0,
+            'description': '',
+        },
+    },
+    "file_service.snapshots.delete": {
+        "data": {},
+        "result": {
+            "code": 0,
+            "description": "",
+        },
+    },
 }
 
 
@@ -208,6 +224,8 @@ class StorageTest(TestCase):
     session.account.accounts.get.return_value = (0, API_RESPONSE["account.accounts"])
     session.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
     session.converged_service.namespaces.get.return_value = (0, API_RESPONSE["converged_service.namespaces"])
+    session.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
+    session.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
     # queries related to dtrees have variable outcome depending on arguments
     session.get.side_effect = api_response_get_side_effect
     session.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
@@ -384,3 +402,22 @@ class StorageTest(TestCase):
         snap_reference = ["dttest_SNAP_TEST_01", "dttest_SNAP_TEST_03"]
         self.assertEqual(O.list_snapshots("test", "dttest"), snap_reference)
         self.assertRaises(oceanstor.OceanStorOperationError, O.list_snapshots, "test", "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_create_filesystem_snapshot(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT"), True)
+        self.assertEqual(O.create_filesystem_snapshot("test", "SNAP_TEST_01"), 0)
+        self.assertRaises(oceanstor.OceanStorOperationError, O.create_filesystem_snapshot, "nonexistent", "NEW_SNAPSHOT")
+        self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT", filesets="dttest"), True)
+        self.assertEqual(O.create_filesystem_snapshot("test", "SNAP_TEST_01", filesets="dttest"), 0)
+        self.assertEqual(O.create_filesystem_snapshot("test", "NEW_SNAPSHOT", filesets=["dttest"]), True)
+        self.assertEqual(O.create_filesystem_snapshot("test", "SNAP_TEST_01", filesets=["dttest"]), 0)
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_delete_filesystem_snapshot(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        self.assertEqual(O.delete_filesystem_snapshot("test", "SNAP_TEST_01"), True)
+        self.assertEqual(O.delete_filesystem_snapshot("test", "NONEXISTENT"), 0)
+        self.assertRaises(oceanstor.OceanStorOperationError, O.delete_filesystem_snapshot, "nonexistent", "SNAP_TEST_01")
+
