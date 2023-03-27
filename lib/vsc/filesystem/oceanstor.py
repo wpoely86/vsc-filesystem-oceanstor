@@ -1827,7 +1827,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if dtree is None:
                 err_msg = "Snapshot query failed: fileset '%s' not found in filesystem '%s'" % (filesystem, fileset)
                 self.log.raiseException(err_msg, OceanStorOperationError)
-            filter_json.update({"dtree_id": dtree["id"]})
+            filter_json["dtree_id"] = dtree["id"]
 
         filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
         _, response = self.session.file_service.snapshots.get(pagination=True, filter=filter_json)
@@ -1885,7 +1885,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         }
 
         if fileset_name is not None:
-            query_params.update({"dtree_name": fileset_name})
+            query_params["dtree_name"] = fileset_name
 
         if self.dry_run:
             self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
@@ -1938,7 +1938,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         }
 
         if fileset_name is not None:
-            query_params.update({"dtree_name": fileset_name})
+            query_params["dtree_name"] = fileset_name
 
         if self.dry_run:
             self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
