@@ -1856,8 +1856,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     return 0
 
                 # the snapshot namespace of all filesets is shared in OceanStor
-                # create unique snapshot name per fileset
-                fileset_snapname = "%s_%s" % (fileset, snapname)
+                fileset_snapname = self._fileset_snapshot_name(fileset, snapname)
 
                 new_snap_status = self._new_snapshot_api(fileset_snapname, fsname, fileset)
         else:
@@ -1909,10 +1908,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if self.get_fileset_info(fsname, fileset) is None:
                 self.log.error("Cannot delete snapshot: fileset %s not found on filesystem %s!", fileset, fsname)
                 return 0
-
             # the snapshot namespace of all filesets is shared in OceanStor
-            # create unique snapshot name per fileset
-            snapname = "%s_%s" % (fileset, snapname)
+            snapname = self._fileset_snapshot_name(fileset, snapname)
 
         # delete snapshot
         del_snap_status = self._del_snapshot_api(snapname, fsname, fileset)
@@ -1948,3 +1945,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
 
         return True
+
+    def _fileset_snapshot_name(self, fileset, snapshot_basename):
+        """
+        All filesets in a filesystem in OceanStor share a common namespace
+        Return unique snapshot name for a given fileset
+        """
+        # prefix filset name to snapshot name
+        fileset_snapshot = "%s_%s" % (fileset, snapshot_basename)
+
+        dbgmsg = "Snapshot name of dtree fileset '%s' changed from '%s' to '%s' to avoid name collision"
+        self.log.debug(dbgmsg, fileset, snapshot_basename, fileset_snapshot)
+
+        return fileset_snapshot
+
