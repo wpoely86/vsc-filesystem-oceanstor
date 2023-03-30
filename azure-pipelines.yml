@@ -22,4 +22,7 @@ resources:
 jobs:
   - template: run-tox-vsc-env.yml@vub-hpc
     parameters:
+      jobs:
+        py39:
+        py36:
       vsc_requires: [vsc-config]

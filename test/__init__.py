@@ -1,5 +1,5 @@
 #
-# Copyright 2022-2022 Vrije Universiteit Brussel
+# Copyright 2022-2023 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
 # originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),

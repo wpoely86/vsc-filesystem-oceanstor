@@ -1,5 +1,5 @@
 #
-# Copyright 2022-2022 Vrije Universiteit Brussel
+# Copyright 2022-2023 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
 # originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),
@@ -1810,3 +1810,152 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             expired = (False, None)
 
         return expired
+
+    def list_snapshots(self, filesystem, fileset=None):
+        """
+        List the snapshots in the given filesystem or dtree fileset
+
+        @type filesystem: name of the filesystem
+        @type fileset: name of the dtree fileset
+        """
+
+        fs = self.get_filesystem_info(filesystem)
+        filter_json = {"file_system_id": int(fs["id"])}
+
+        if fileset is not None:
+            dtree = self.get_fileset_info(filesystem, fileset)
+            if dtree is None:
+                err_msg = "Snapshot query failed: fileset '%s' not found in filesystem '%s'" % (filesystem, fileset)
+                self.log.raiseException(err_msg, OceanStorOperationError)
+            filter_json["dtree_id"] = dtree["id"]
+
+        filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
+        _, response = self.session.file_service.snapshots.get(pagination=True, filter=filter_json)
+
+        snapshots = [snap["name"] for snap in response["data"]]
+
+        return snapshots
+
+    def create_filesystem_snapshot(self, fsname, snapname, filesets=None):
+        """
+        Create a filesystem snapshot. If filesets is None, it's full system snapshots
+        else the snapshot is limited to the list of filesets given.
+
+        @type fsname: string representing the name of the filesystem
+        @type snapname: string representing the name of the new snapshot
+        @type filesets: list of fileset names to take a snapshots of
+        """
+        if filesets is not None:
+            # fileset/dtree snapshot
+            if not isinstance(filesets, list):
+                filesets = [filesets]
+
+            for fileset in filesets:
+                if self.get_fileset_info(fsname, fileset) is None:
+                    self.log.error("Cannot create snapshot: fileset %s not found on filesystem %s!", fileset, fsname)
+                    return 0
+
+                # the snapshot namespace of all filesets is shared in OceanStor
+                fileset_snapname = self._fileset_snapshot_name(fileset, snapname)
+
+                new_snap_status = self._new_snapshot_api(fileset_snapname, fsname, fileset)
+        else:
+            # filesystem snapshot
+            new_snap_status = self._new_snapshot_api(snapname, fsname, None)
+
+        return new_snap_status
+
+    def _new_snapshot_api(self, snap_name, fs_name, fileset_name=None):
+        """
+        Create new snapshot in OceanStor
+
+        @type snap_name: string representing the name of the new snapshot
+        @type fs_name: name of the filesystem of the new snapshot
+        @type fileset_name: name of the dtree fileset of the new snapshot
+        """
+        snapshots = self.list_snapshots(fs_name, fileset_name)
+        if snap_name in snapshots:
+            self.log.error("Snapshot '%s' already exists for filesystem %s!", snap_name, fs_name)
+            return 0
+
+        query_params = {
+            "name": str(snap_name),
+            "file_system_name": fs_name,
+        }
+
+        if fileset_name is not None:
+            query_params["dtree_name"] = fileset_name
+
+        if self.dry_run:
+            self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
+        else:
+            _, response = self.session.file_service.snapshots.post(body=query_params)
+            new_snap_id = response["data"]["id"]
+            self.log.info("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
+
+        return True
+
+    def delete_filesystem_snapshot(self, fsname, snapname, fileset=None):
+        """
+        Delete a full filesystem snapshot or dtree fileset snapshot
+
+        @type fsname: name of the filesystem of the snapshot to delete
+        @type snapname: string representing the name of the snapshot to delete
+        @type fileset: name of the dtree fileset of the snapshot to delete
+        """
+
+        if fileset is not None:
+            if self.get_fileset_info(fsname, fileset) is None:
+                self.log.error("Cannot delete snapshot: fileset %s not found on filesystem %s!", fileset, fsname)
+                return 0
+            # the snapshot namespace of all filesets is shared in OceanStor
+            snapname = self._fileset_snapshot_name(fileset, snapname)
+
+        # delete snapshot
+        del_snap_status = self._del_snapshot_api(snapname, fsname, fileset)
+
+        return del_snap_status
+
+    def _del_snapshot_api(self, snap_name, fs_name, fileset_name=None):
+        """
+        Delete existing snapshot in OceanStor
+
+        @type snap_name: string representing the name of the snapshot to delete
+        @type fs_name: name of the filesystem of the snapshot to delete
+        @type fileset_name: name of the dtree fileset of the snapshot to delete
+        """
+        snapshots = self.list_snapshots(fs_name, fileset_name)
+        if snap_name not in snapshots:
+            self.log.error("Snapshot '%s' does not exist in filesystem %s!", snap_name, fs_name)
+            return 0
+
+        query_params = {
+            "name": str(snap_name),
+            "file_system_name": fs_name,
+        }
+
+        if fileset_name is not None:
+            query_params["dtree_name"] = fileset_name
+
+        if self.dry_run:
+            self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
+        else:
+            _, response = self.session.file_service.snapshots.delete(body=query_params)
+            deletion_status = response["result"]["code"]
+            self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
+
+        return True
+
+    def _fileset_snapshot_name(self, fileset, snapshot_basename):
+        """
+        All filesets in a filesystem in OceanStor share a common namespace
+        Return unique snapshot name for a given fileset
+        """
+        # prefix filset name to snapshot name
+        fileset_snapshot = "%s_%s" % (fileset, snapshot_basename)
+
+        dbgmsg = "Snapshot name of dtree fileset '%s' changed from '%s' to '%s' to avoid name collision"
+        self.log.debug(dbgmsg, fileset, snapshot_basename, fileset_snapshot)
+
+        return fileset_snapshot
+
