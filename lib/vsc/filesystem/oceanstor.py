@@ -228,13 +228,17 @@ class OceanStorClient(Client):
             # Some queries generate a response with an int result
             # e.g. GET 'data_service/storagepool'
             exit_code = result
-            ec_msg = str(exit_code)
+            ec_msg_desc = ""
+            if "data" in response:
+                ec_msg_desc = response["data"]["errorMsg"]
+                if "suggestion" in response["data"]:
+                    ec_msg_desc += " " + response["data"]["suggestion"]
         else:
             ec_msg_desc = result["description"]
             if "suggestion" in result:
                 ec_msg_desc += " " + result["suggestion"]
-            ec_msg = "%s (%s)" % (result["code"], ec_msg_desc)
 
+        ec_msg = "%s (%s)" % (exit_code, ec_msg_desc)
         ec_full_msg = "OceanStor query returned exit code: %s" % ec_msg
         if exit_code != 0:
             fancylogger.getLogger().raiseException(ec_full_msg, exception=RuntimeError)
