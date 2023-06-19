@@ -51,8 +51,6 @@ from vsc.utils.rest import Client, RestClient
 from vsc.utils.py2vs3 import HTTPError, HTTPSHandler, build_opener, is_py2
 
 
-OCEANSTOR_API_PATH = ["api", "v2"]
-
 # REST API cannot handle white spaces between keys and values
 OCEANSTOR_JSON_SEP = (",", ":")
 
@@ -247,7 +245,7 @@ class OceanStorClient(Client):
 
     def get_x_auth_token(self, username, password):
         """Request authetication token"""
-        query_url = os.path.join("aa", "sessions")
+        query_url = os.path.join("api", "v2", "aa", "sessions")
 
         payload = {
             "user_name": username,
@@ -313,13 +311,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.host_institute = self.vsc.options.options.host_institute
 
         # OceanStor API URL
-        self.api_url = os.path.join(url, *OCEANSTOR_API_PATH)
-        self.log.info("URL of OceanStor REST API server: %s", self.api_url)
 
         # Initialize REST client without user/password
-        self.session = OceanStorRestClient(self.api_url)
+        self.log.info("URL of OceanStor REST API server: %s", url)
+        self.session = OceanStorRestClient(url)
         # Get token for this session with user/password
-        self.session.client.get_x_auth_token(username, password)
+        self.session.api.v2.client.get_x_auth_token(username, password)
 
         # Account details
         self.account = self.get_account_id(account)
@@ -330,7 +327,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         filter_json = [{"name": account_name}]
         filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
-        _, response = self.session.account.accounts.get(filter=filter_json)
+        _, response = self.session.api.v2.account.accounts.get(filter=filter_json)
         ostor_account = response["data"][0]
 
         return ostor_account
@@ -369,7 +366,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             return self.oceanstor_storagepools
 
         # Request storage pools
-        _, response = self.session.data_service.storagepool.get()
+        _, response = self.session.api.v2.data_service.storagepool.get()
 
         # Organize in a dict by storage pool name
         storage_pools = dict()
@@ -450,7 +447,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Query filesystems that belong to our account
                 filter_json = [{"account_id": self.account["id"], "storage_pool_id": str(sp_id)}]
                 filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
-                _, response = self.session.converged_service.namespaces.get(filter=filter_json)
+                _, response = self.session.api.v2.converged_service.namespaces.get(filter=filter_json)
                 # Save selection of attributes for this filesystem
                 for fs in response["data"]:
                     new_fs_record = {attr: fs[attr] for attr in fs_attrs}
@@ -586,12 +583,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Request dtree filesets
                 dbg_prefix = ""
                 # query dtrees in this filesystem
-                _, response = self.session.file_service.dtrees.get(file_system_name=fs_name)
+                _, response = self.session.api.v2.file_service.dtrees.get(file_system_name=fs_name)
                 fs_dtree = {dt["id"]: dt for dt in response["data"]}
                 # query parent directory of each individual fileset by ID (fsId@dtreeId)
                 for dt_id in fs_dtree:
                     dtree_api_path = os.path.join("file_service", "dtrees", dt_id)
-                    _, dt_response = self.session.get(url=dtree_api_path)
+                    _, dt_response = self.session.api.v2.get(url=dtree_api_path)
                     fs_dtree[dt_id]["parent_dir"] = dt_response["data"]["parent_dir"]
 
                 dtree_filesets[fs_name] = fs_dtree
@@ -772,7 +769,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     "account_name": self.account["name"],
                     "filter": filter_json,
                 }
-                _, response = self.session.nas_protocol.nfs_share_list.get(**query_params)
+                _, response = self.session.api.v2.nas_protocol.nfs_share_list.get(**query_params)
                 fs_nfs_shares = {ns["id"]: ns for ns in response["data"]}
                 nfs_shares[fs_name] = fs_nfs_shares
 
@@ -838,7 +835,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                     "account_name": self.account["name"],
                     "filter": filter_json,
                 }
-                _, response = self.session.nas_protocol.nfs_share_auth_client_list.get(**query_params)
+                _, response = self.session.api.v2.nas_protocol.nfs_share_auth_client_list.get(**query_params)
                 share_client = {nc["id"]: nc for nc in response["data"]}
                 nfs_clients[ns_id] = share_client
 
@@ -860,7 +857,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             return self.oceanstor_nfsservers
 
         # Request all server IPs
-        _, response = self.session.eds_dns_service.ips.get()
+        _, response = self.session.api.v2.eds_dns_service.ips.get()
         nfs_servers = [node["ip_address"] for node in response["data"] if VSC_NETWORK_LABEL in node["iface_name"]]
         # Strip subnet bits from IP addresses
         nfs_servers = [ip.split("/", 1)[0] for ip in nfs_servers]
@@ -1180,7 +1177,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.dry_run:
             self.log.info("(dryrun) New dtree fileset creation query: %s", new_dtree_params)
         else:
-            _, result = self.session.file_service.dtrees.post(body=new_dtree_params)
+            _, result = self.session.api.v2.file_service.dtrees.post(body=new_dtree_params)
             self.log.info("New dtree fileset created succesfully: %s", result)
 
             # Rescan all filesets and force update the info
@@ -1310,7 +1307,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
                 # quota queries are paginated
                 query_params["space_unit_type"] = OCEANSTOR_QUOTA_UNIT_TYPE["B"]  # bytes
-                status, response = self.session.file_service.fs_quota.get(pagination=True, **query_params)
+                status, response = self.session.api.v2.file_service.fs_quota.get(pagination=True, **query_params)
 
                 if status and "data" in response:
                     # add each quota to its category in current filesystem
@@ -1543,7 +1540,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.dry_run:
             self.log.info("(dryrun) Quota '%s' update query: %s", quota_id, query_params)
         else:
-            self.session.file_service.fs_quota.put(body=query_params)
+            self.session.api.v2.file_service.fs_quota.put(body=query_params)
             self.log.info("Quota '%s' updated succesfully", quota_id)
 
     def _new_quota_api(self, quota_parent, typ="user", who=None, **kwargs):
@@ -1598,7 +1595,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Attempt the creation of the quota
         # TODO: remove the warning whenever OceanStor allows creating quotas on non-empty filesets
         try:
-            _, response = self.session.file_service.fs_quota.post(body=query_params)
+            _, response = self.session.api.v2.file_service.fs_quota.post(body=query_params)
         except RuntimeError:
             if typ == "user":
                 warnmsg = (
@@ -1755,7 +1752,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.dry_run:
             self.log.info("(dryrun) Grace period of quota '%s' update query: %s", quota_id, query_params)
         else:
-            self.session.file_service.fs_quota.put(body=query_params)
+            self.session.api.v2.file_service.fs_quota.put(body=query_params)
             self.log.info("Grace period of quota '%s' updated succesfully: %s days", quota_id, grace)
 
     @staticmethod
@@ -1830,7 +1827,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             filter_json["dtree_id"] = dtree["id"]
 
         filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
-        _, response = self.session.file_service.snapshots.get(pagination=True, filter=filter_json)
+        _, response = self.session.api.v2.file_service.snapshots.get(pagination=True, filter=filter_json)
 
         snapshots = [snap["name"] for snap in response["data"]]
 
@@ -1889,7 +1886,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.dry_run:
             self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
         else:
-            _, response = self.session.file_service.snapshots.post(body=query_params)
+            _, response = self.session.api.v2.file_service.snapshots.post(body=query_params)
             new_snap_id = response["data"]["id"]
             self.log.info("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
 
@@ -1940,7 +1937,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if self.dry_run:
             self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
         else:
-            _, response = self.session.file_service.snapshots.delete(body=query_params)
+            _, response = self.session.api.v2.file_service.snapshots.delete(body=query_params)
             deletion_status = response["result"]["code"]
             self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
 

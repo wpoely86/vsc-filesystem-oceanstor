@@ -221,15 +221,15 @@ class StorageTest(TestCase):
     rest_client = mock.Mock()
     session = rest_client.return_value
     # static queries
-    session.account.accounts.get.return_value = (0, API_RESPONSE["account.accounts"])
-    session.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
-    session.converged_service.namespaces.get.return_value = (0, API_RESPONSE["converged_service.namespaces"])
-    session.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
-    session.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
+    session.api.v2.account.accounts.get.return_value = (0, API_RESPONSE["account.accounts"])
+    session.api.v2.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
+    session.api.v2.converged_service.namespaces.get.return_value = (0, API_RESPONSE["converged_service.namespaces"])
+    session.api.v2.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
+    session.api.v2.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
     # queries related to dtrees have variable outcome depending on arguments
-    session.get.side_effect = api_response_get_side_effect
-    session.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
-    session.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
+    session.api.v2.get.side_effect = api_response_get_side_effect
+    session.api.v2.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
+    session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_storage_pools(self):
