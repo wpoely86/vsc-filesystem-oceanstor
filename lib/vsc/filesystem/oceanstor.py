@@ -340,6 +340,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return ostor_account
 
+    def list_active_accounts(self):
+        """
+        Query active accounts
+        Return list of tuples with name and ID of active account
+        """
+        _, response = self.session.api.v2.account.accounts.get(pagination=True)
+
+        accounts = [(acc["name"], acc["id"]) for acc in response["data"] if acc["status"] == "Active"]
+
+        return accounts
+
     def list_storage_pools(self, update=False):
         """
         List available storage pools in OceanStor

@@ -231,7 +231,7 @@ def api_response_snapshots_side_effect(filter=None, *args, **kwargs):
     return (0, response)
 
 
-def api_response_account_side_effect(filter=None, *args):
+def api_response_account_side_effect(filter=None, **kwargs):
     """
     Mock GET responses of account/accounts depending on the filesystem name
     """
@@ -278,6 +278,16 @@ class StorageTest(TestCase):
         }
         self.assertEqual(O.get_account_info("test"), account_reference)
         self.assertRaises(oceanstor.OceanStorOperationError, O.get_account_info, "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_list_active_accounts(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        accounts_reference = [
+            ("system", "0"),
+            ("test", "0000000001"),
+            ("oceanstor_account", "0000000002"),
+        ]
+        self.assertEqual(O.list_active_accounts(), accounts_reference)
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_storage_pools(self):
