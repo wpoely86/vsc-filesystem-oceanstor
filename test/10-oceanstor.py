@@ -29,7 +29,7 @@ Tests for the oceanstor library.
 """
 from __future__ import print_function
 
-import os
+import json
 import mock
 import vsc.filesystem.oceanstor as oceanstor
 
@@ -41,9 +41,27 @@ API_RESPONSE = {
     "account.accounts": {
         "data": [
             {
-                "canonical_user_id": "00000000000000000000000000000000",
-                "id": "0000000000",
+                "canonical_user_id": "11111111111111111111111111111111",
+                "create_time": "1672531200",
+                "encrypt_option": "0",
+                "id": "0",
+                "name": "system",
+                "status": "Active",
+            },
+            {
+                "canonical_user_id": "00000000000000000000000000000001",
+                "create_time": "1675209600",
+                "encrypt_option": "0",
+                "id": "0000000001",
                 "name": "test",
+                "status": "Active",
+            },
+            {
+                "canonical_user_id": "00000000000000000000000000000002",
+                "create_time": "1675209600",
+                "encrypt_option": "0",
+                "id": "0000000002",
+                "name": "oceanstor_account",
                 "status": "Active",
             },
         ],
@@ -213,6 +231,22 @@ def api_response_snapshots_side_effect(filter=None, *args, **kwargs):
     return (0, response)
 
 
+def api_response_account_side_effect(filter=None, *args):
+    """
+    Mock GET responses of account/accounts depending on the filesystem name
+    """
+    response = {"data": []}
+
+    if filter is None:
+        response = API_RESPONSE["account.accounts"]
+    else:
+        params = json.loads(filter)
+        account_name = params[0]["name"]
+        response["data"] = [acc for acc in API_RESPONSE["account.accounts"]["data"] if acc["name"] == account_name]
+
+    return (0, response)
+
+
 class StorageTest(TestCase):
     """
     Tests for various storage functions in the oceanstor lib.
@@ -221,7 +255,6 @@ class StorageTest(TestCase):
     rest_client = mock.Mock()
     session = rest_client.return_value
     # static queries
-    session.api.v2.account.accounts.get.return_value = (0, API_RESPONSE["account.accounts"])
     session.api.v2.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
     session.api.v2.converged_service.namespaces.get.return_value = (0, API_RESPONSE["converged_service.namespaces"])
     session.api.v2.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
@@ -230,6 +263,21 @@ class StorageTest(TestCase):
     session.api.v2.get.side_effect = api_response_get_side_effect
     session.api.v2.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
     session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
+    session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_get_account_info(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        account_reference = {
+            "canonical_user_id": "00000000000000000000000000000001",
+            "create_time": "1675209600",
+            "encrypt_option": "0",
+            "id": "0000000001",
+            "name": "test",
+            "status": "Active",
+        }
+        self.assertEqual(O.get_account_info("test"), account_reference)
+        self.assertRaises(oceanstor.OceanStorOperationError, O.get_account_info, "nonexistent")
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_storage_pools(self):

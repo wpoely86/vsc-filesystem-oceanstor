@@ -323,16 +323,20 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.session.api.v2.client.get_x_auth_token(username, password)
 
         # Account details
-        self.account = self.get_account_id(account)
+        self.account = self.get_account_info(account)
 
-    def get_account_id(self, account_name):
+    def get_account_info(self, account_name):
         """
-        Query the ID an account name
+        Query the details of an account by name
         """
         filter_json = [{"name": account_name}]
         filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
         _, response = self.session.api.v2.account.accounts.get(filter=filter_json)
-        ostor_account = response["data"][0]
+        try:
+            ostor_account = response["data"][0]
+        except IndexError:
+            errmsg = "OceanStor account not found: %s" % account_name
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         return ostor_account
 
