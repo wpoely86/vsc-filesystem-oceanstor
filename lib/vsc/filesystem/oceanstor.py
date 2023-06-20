@@ -298,6 +298,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.ignorerealpathmismatch = True  # allow working through symlinks
 
         self.oceanstor_storagepools = dict()
+        self.oceanstor_namespaces = dict()
         self.oceanstor_filesystems = dict()
         self.oceanstor_filesets = dict()
 
@@ -329,6 +330,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         """
         Query the details of an account by name
         """
+
         filter_json = [{"name": account_name}]
         filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
         _, response = self.session.api.v2.account.accounts.get(filter=filter_json)
@@ -427,9 +429,75 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return sp_select
 
+    def list_namespaces(self, pool=None, account=None, update=False):
+        """
+        List namespaces in given storage pool and owned by given accounts
+
+        @type pool: list of storage pools names (if string: 1 storage pool; if None or all: all known ones)
+        @type account: list of owner account names (if string: 1 storage pool; if None or all: all known ones)
+
+        Set self.oceanstor_namespaces as dict with
+        : keys per accountName and value is dict with
+        :: keys per namespaceName and value is dict with
+        ::: selected keys from OceanStor:
+        - id
+        - name
+        - storage_pool_id
+        - account_id
+        """
+        ns_attrs = ["id", "name", "storage_pool_id", "account_id"]
+
+        # Filter on active accounts
+        # Support special case 'all' for downstream compatibility
+        active_accounts = self.list_active_accounts()
+        if account is None or account == "all":
+            account = [acc[0] for acc in active_accounts]
+        elif not isinstance(account, list):
+            account = [account]
+        filter_acc = [acc[1] for acc in active_accounts if acc[0] in account]
+        self.log.debug("Filtering namespaces owned by accounts with IDs: %s", ", ".join(str(i) for i in filter_acc))
+
+        namespaces = {}
+        for acc_id in filter_acc:
+            if not update and acc_id in self.oceanstor_namespaces:
+                # Use cached namespace data
+                dbg_prefix = "(cached) "
+                namespaces[acc_id] = self.oceanstor_namespaces[acc_id]
+            else:
+                # Request namespace data
+                dbg_prefix = ""
+                # Query namespaces in all pools for this account
+                filter_json = [{"account_id": str(acc_id)}]
+                filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
+                _, response = self.session.api.v2.converged_service.namespaces.get(filter=filter_json)
+                # Save selection of attributes for this namespace
+                namespaces[acc_id] = {ns["name"]: {attr: ns[attr] for attr in ns_attrs} for ns in response["data"]}
+
+        # Update cache of namespaces with the selected accounts
+        self.oceanstor_namespaces.update(namespaces)
+
+        # Filter on storage pools
+        # Support special case 'all' for downstream compatibility
+        if pool is None or pool == "all":
+            storage_pools = self.list_storage_pools()
+            pool = list(storage_pools.keys())
+        filter_pool = self.select_storage_pools(pool, byid=True)
+        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ", ".join(str(i) for i in filter_pool))
+
+        filter_namespaces = {
+            acc_id: {ns: acc_ns[ns] for ns in acc_ns if acc_ns[ns]["storage_pool_id"] in filter_pool}
+            for acc_id, acc_ns in namespaces.items()
+        }
+        self.log.debug("%sNamespaces in OceanStor: %s", dbg_prefix, ", ".join(filter_namespaces))
+
+        return namespaces
+
     def list_filesystems(self, device=None, pool=None, update=False):
         """
-        List filesystems in OceanStor
+        List filesystems in OceanStor owned by our account
+        - Filesystems are namespaces in OceanStor
+        - Select all namespaces in our account and assume they are filesystems
+        - Use namespaces API because interface at file_service/file_systems does not allow to filter by account
 
         @type device: list of filesystem names (if string: 1 filesystem, if None or all: all known ones)
         @type pool: list of storage pools names (if string: 1 storage pool; if None or all: all known ones)
@@ -440,40 +508,18 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         - id
         - name
         - storage_pool_id
+        - account_id
         """
-        fs_attrs = ["id", "name", "storage_pool_id"]
-
-        # Filter by requested storage pool
-        # Support special case 'all' for downstream compatibility
-        if pool is None or pool == "all":
-            storage_pools = self.list_storage_pools(update=update)
-            pool = list(storage_pools.keys())
-
-        filter_sp = self.select_storage_pools(pool, byid=True)
-        self.log.debug("Filtering filesystems in storage pools with IDs: %s", ", ".join(str(i) for i in filter_sp))
-
         if not update and self.oceanstor_filesystems:
-            # Use cached filesystem data
+            # Use cached filesystems data
             dbg_prefix = "(cached) "
-            filesystems = {
-                fs["name"]: fs for fs in self.oceanstor_filesystems.values() if fs["storage_pool_id"] in filter_sp
-            }
         else:
-            # Request filesystem data
+            # Update filesystems from namespaces data
             dbg_prefix = ""
-            filesystems = dict()
-            for sp_id in filter_sp:
-                # Query filesystems that belong to our account
-                filter_json = [{"account_id": self.account["id"], "storage_pool_id": str(sp_id)}]
-                filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
-                _, response = self.session.api.v2.converged_service.namespaces.get(filter=filter_json)
-                # Save selection of attributes for this filesystem
-                for fs in response["data"]:
-                    new_fs_record = {attr: fs[attr] for attr in fs_attrs}
-                    filesystems.update({fs["name"]: new_fs_record})
+            account_namespaces = self.list_namespaces(pool=pool, account=self.account["name"], update=update)
+            self.oceanstor_filesystems = account_namespaces[self.account["id"]]
 
-            # Update filesystems in the selected pools
-            self.oceanstor_filesystems = filesystems
+        filesystems = self.oceanstor_filesystems
 
         # Filter by filesystem name (device in GPFS)
         # Support special case 'all' for downstream compatibility
@@ -553,9 +599,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @raise OceanStorOperationError: if there is no filesystem with the given name
         """
-        self.list_filesystems()
+        oceanstor_filesystems = self.list_filesystems()
         try:
-            return self.oceanstor_filesystems[filesystem]
+            return oceanstor_filesystems[filesystem]
         except KeyError:
             errmsg = "OceanStor has no information for filesystem %s" % (filesystem)
             self.log.raiseException(errmsg, OceanStorOperationError)
@@ -1974,4 +2020,3 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.log.debug(dbgmsg, fileset, snapshot_basename, fileset_snapshot)
 
         return fileset_snapshot
-

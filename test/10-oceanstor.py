@@ -82,14 +82,22 @@ API_RESPONSE = {
     "converged_service.namespaces": {
         "data": [
             {
-                "id": 30,
+                "id": 10,
                 "name": "test",
                 "storage_pool_id": 0,
+                "account_id": "0000000002",
             },
             {
-                "id": 40,
+                "id": 11,
                 "name": "data",
                 "storage_pool_id": 0,
+                "account_id": "0000000002",
+            },
+            {
+                "id": 20,
+                "name": "object",
+                "storage_pool_id": 0,
+                "account_id": "0000000001",
             },
         ],
         "result": {
@@ -233,16 +241,36 @@ def api_response_snapshots_side_effect(filter=None, *args, **kwargs):
 
 def api_response_account_side_effect(filter=None, **kwargs):
     """
-    Mock GET responses of account/accounts depending on the filesystem name
+    Mock GET responses of account/accounts depending on filters
     """
-    response = {"data": []}
+    unfilter_response = API_RESPONSE["account.accounts"]
 
     if filter is None:
-        response = API_RESPONSE["account.accounts"]
-    else:
-        params = json.loads(filter)
-        account_name = params[0]["name"]
-        response["data"] = [acc for acc in API_RESPONSE["account.accounts"]["data"] if acc["name"] == account_name]
+        return (0, unfilter_response)
+
+    params = json.loads(filter)
+    account_name = params[0]["name"]
+
+    response = {"data": []}
+    response["data"] = [acc for acc in unfilter_response["data"] if acc["name"] == account_name]
+
+    return (0, response)
+
+
+def api_response_namespaces_side_effect(filter=None, **kwargs):
+    """
+    Mock GET responses of converged_service/namespaces depending on filters
+    """
+    unfilter_response = API_RESPONSE["converged_service.namespaces"]
+
+    if filter is None:
+        return (0, unfilter_response)
+
+    params = json.loads(filter)
+    account_id = params[0]["account_id"]
+
+    response = {"data": []}
+    response["data"] = [ns for ns in unfilter_response["data"] if ns["account_id"] == account_id]
 
     return (0, response)
 
@@ -256,7 +284,6 @@ class StorageTest(TestCase):
     session = rest_client.return_value
     # static queries
     session.api.v2.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
-    session.api.v2.converged_service.namespaces.get.return_value = (0, API_RESPONSE["converged_service.namespaces"])
     session.api.v2.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
     session.api.v2.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
     # queries related to dtrees have variable outcome depending on arguments
@@ -264,6 +291,7 @@ class StorageTest(TestCase):
     session.api.v2.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
     session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
     session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
+    session.api.v2.converged_service.namespaces.get.side_effect = api_response_namespaces_side_effect
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_get_account_info(self):
@@ -310,28 +338,86 @@ class StorageTest(TestCase):
         self.assertEqual(O.list_storage_pools(update=True), storagepools_reference)
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
-    def test_list_filesystems(self):
+    def test_list_namespaces(self):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
-        fs_test = {
-            "test": {
-                "id": 30,
-                "name": "test",
-                "storage_pool_id": 0,
-            }
-        }
-        fs_data = {
-            "data": {
-                "id": 40,
-                "name": "data",
-                "storage_pool_id": 0,
+
+        ns_ref_main = {
+            "0000000002": {
+                "test": {
+                    "id": 10,
+                    "name": "test",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000002",
+                },
+                "data": {
+                    "id": 11,
+                    "name": "data",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000002",
+                },
             },
         }
+        self.assertEqual(O.list_namespaces(account="oceanstor_account"), ns_ref_main)
+        self.assertEqual(O.list_namespaces(account="oceanstor_account", pool="StoragePool0"), ns_ref_main)
 
+        ns_ref_test = {
+            "0000000001": {
+                "object": {
+                    "id": 20,
+                    "name": "object",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000001",
+                }
+            },
+        }
+        self.assertEqual(O.list_namespaces(account="test"), ns_ref_test)
+        self.assertEqual(O.list_namespaces(account="test", pool="StoragePool0"), ns_ref_test)
+
+        ns_ref_full = {"0": {}}
+        ns_ref_full.update(ns_ref_main)
+        ns_ref_full.update(ns_ref_test)
+        self.assertEqual(O.list_namespaces(), ns_ref_full)
+        self.assertEqual(O.list_namespaces(pool="StoragePool0"), ns_ref_full)
+
+        ns_outdated = {
+            "0000000002": {
+                "outdated": {
+                    "id": 00,
+                    "name": "outdated",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000002",
+                },
+            },
+        }
+        O.oceanstor_namespaces = ns_outdated
+        self.assertEqual(O.list_namespaces(), ns_outdated)
+        self.assertEqual(O.list_namespaces(update=True), ns_ref_full)
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_list_filesystems(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+
+        fs_test = {
+            "test": {
+                "id": 10,
+                "name": "test",
+                "storage_pool_id": 0,
+                "account_id": "0000000002",
+            }
+        }
         fs_reference = {}
         fs_reference.update(fs_test)
         self.assertEqual(O.list_filesystems(device="test"), fs_reference)
         self.assertEqual(O.list_filesystems(device="test", pool="StoragePool0"), fs_reference)
 
+        fs_data = {
+            "data": {
+                "id": 11,
+                "name": "data",
+                "storage_pool_id": 0,
+                "account_id": "0000000002",
+            },
+        }
         fs_reference.update(fs_data)
         self.assertEqual(O.list_filesystems(), fs_reference)
         self.assertEqual(O.list_filesystems(pool="StoragePool0"), fs_reference)
@@ -341,6 +427,7 @@ class StorageTest(TestCase):
                 "id": 00,
                 "name": "outdated",
                 "storage_pool_id": 0,
+                "account_id": "0000000002",
             },
         }
         O.oceanstor_filesystems = fs_outdated
@@ -351,9 +438,10 @@ class StorageTest(TestCase):
     def test_get_filesystem_info(self):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         fs_test = {
-            "id": 30,
+            "id": 10,
             "name": "test",
             "storage_pool_id": 0,
+            "account_id": "0000000002",
         }
         self.assertEqual(O.get_filesystem_info("test"), fs_test)
         self.assertRaises(oceanstor.OceanStorOperationError, O.get_filesystem_info, "nonexistent")
