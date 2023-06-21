@@ -394,6 +394,18 @@ class StorageTest(TestCase):
         self.assertEqual(O.list_namespaces(update=True), ns_ref_full)
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_get_namespace_info(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        ns_test = {
+            "id": 10,
+            "name": "test",
+            "storage_pool_id": 0,
+            "account_id": "0000000002",
+        }
+        self.assertEqual(O.get_namespace_info("test"), ns_test)
+        self.assertRaises(oceanstor.OceanStorOperationError, O.get_filesystem_info, "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_filesystems(self):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
 

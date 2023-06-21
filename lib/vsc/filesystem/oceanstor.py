@@ -492,6 +492,27 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return namespaces
 
+    def get_namespace_info(self, namespace):
+        """
+        Get all the relevant information for a given OceanStor namespace.
+        There is a single namespace in OceanStor, so there will be only namespace matching across all accounts
+
+        @type namespace: name of the namespace in OceanStor
+
+        @returns: dictionary with the namespace information
+
+        @raise OceanStorOperationError: if there is no namespace with the given name
+        """
+        oceanstor_namespaces = self.list_namespaces()
+        account = [ns for ns in oceanstor_namespaces if namespace in oceanstor_namespaces[ns]]
+
+        try:
+            return oceanstor_namespaces[account[0]][namespace]
+        except (KeyError, IndexError):
+            errmsg = "OceanStor has no information for namespace %s" % (namespace)
+            self.log.raiseException(errmsg, OceanStorOperationError)
+            return None
+
     def list_filesystems(self, device=None, pool=None, update=False):
         """
         List filesystems in OceanStor owned by our account
