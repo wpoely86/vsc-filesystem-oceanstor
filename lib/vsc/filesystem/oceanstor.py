@@ -176,7 +176,7 @@ class OceanStorClient(Client):
         }
 
         status = None
-        response = {"data": list(), "result": dict()}
+        response = {"data": [], "result": {}}
         page_items = query_range["limit"]
 
         while page_items == query_range["limit"]:
@@ -297,18 +297,18 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.supportedfilesystems = ["nfs", "nfs4"]
         self.ignorerealpathmismatch = True  # allow working through symlinks
 
-        self.oceanstor_storagepools = dict()
-        self.oceanstor_namespaces = dict()
-        self.oceanstor_filesystems = dict()
-        self.oceanstor_filesets = dict()
+        self.oceanstor_storagepools = {}
+        self.oceanstor_namespaces = {}
+        self.oceanstor_filesystems = {}
+        self.oceanstor_filesets = {}
 
-        self.oceanstor_quotas = dict()
-        self.oceanstor_defaultquotas = dict()
+        self.oceanstor_quotas = {}
+        self.oceanstor_defaultquotas = {}
         self.quota_types = Typ2Param
 
-        self.oceanstor_nfsshares = dict()
-        self.oceanstor_nfsclients = dict()
-        self.oceanstor_nfsservers = dict()
+        self.oceanstor_nfsshares = {}
+        self.oceanstor_nfsclients = {}
+        self.oceanstor_nfsservers = {}
 
         self.vsc = VSC()
         self.vscstorage = VscStorage()
@@ -390,7 +390,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         _, response = self.session.api.v2.data_service.storagepool.get()
 
         # Organize in a dict by storage pool name
-        storage_pools = dict()
+        storage_pools = {}
         for sp in response["storagePools"]:
             storage_pools.update({sp["storagePoolName"]: sp})
 
@@ -638,7 +638,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_fs = self.select_filesystems(devices, pool=pool)
         self.log.debug("Seeking dtree filesets in filesystems: %s", ", ".join(filter_fs))
 
-        dtree_filesets = dict()
+        dtree_filesets = {}
         for fs_name in filter_fs:
             if not update and fs_name in self.oceanstor_filesets:
                 # Use cached dtree fileset data and filter by filesystem name
@@ -819,7 +819,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         filter_fs = self.select_filesystems(filesystemnames)
         self.log.debug("Seeking NFS shares in filesystems: %s", ", ".join(filter_fs))
 
-        nfs_shares = dict()
+        nfs_shares = {}
         for fs_name, fs_id in filter_fs.items():
             if not update and fs_name in self.oceanstor_nfsshares:
                 # Use cached data
@@ -885,7 +885,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.log.debug("Seeking NFS clients for NFS shares: %s", ", ".join(str(i) for i in filter_ns))
 
-        nfs_clients = dict()
+        nfs_clients = {}
         for ns_id in filter_ns:
             if not update and ns_id in self.oceanstor_nfsclients:
                 # Use cached data
@@ -1350,8 +1350,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         self.log.debug("Seeking quotas in filesystems IDs: %s", ", ".join(filter_fs))
 
         # Keep regular quotas and user default quotas in separate lists
-        quotas = dict()
-        default_quotas = dict()
+        quotas = {}
+        default_quotas = {}
 
         for fs_name, fs_id in filter_fs.items():
             if not update and fs_name in self.oceanstor_quotas and fs_name in self.oceanstor_defaultquotas:
@@ -1362,8 +1362,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             else:
                 # Request quotas for this filesystem and all its filesets
                 dbg_prefix = ""
-                fs_quotas = {qt.name: dict() for qt in QuotaType}
-                fs_default_quotas = {qt.name: dict() for qt in QuotaType}
+                fs_quotas = {qt.name: {} for qt in QuotaType}
+                fs_default_quotas = {qt.name: {} for qt in QuotaType}
 
                 query_params = {
                     "parent_type": OCEANSTOR_QUOTA_PARENT_TYPE["filesystem"],
