@@ -1910,6 +1910,70 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return snapshots
 
+    def _converged_service_snapshot_api(self, snap_name, namespace, delete=False):
+        """
+        Create or delete a namespace snapshot in OceanStor
+
+        @type snap_name: string representing the name of the new snapshot
+        @type namespace: name of the namespace of the new snapshot
+        @type delete: boolean to switch between creation/deletion of snapshots
+        """
+        snapshots = self.list_namespace_snapshots(namespace)
+
+        query_params = {
+            "name": str(snap_name),
+            "namespace_name": namespace,
+        }
+
+        if delete is True:
+            # DELETE query to delete snapshot
+            if snap_name not in snapshots:
+                self.log.error("Snapshot '%s' does not exist in namespace %s!", snap_name, namespace)
+                return 0
+            if self.dry_run:
+                self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
+            else:
+                _, response = self.session.api.v2.converged_service.snapshots.delete(body=query_params)
+                deletion_status = response["result"]["code"]
+                infomsg = "Snapshot '%s' of namespace %s deleted successfully (status: %s)"
+                self.log.info(infomsg, snap_name, namespace, deletion_status)
+        else:
+            # POST query to create snapshot
+            if snap_name in snapshots:
+                self.log.error("Snapshot '%s' already exists for namespace %s!", snap_name, namespace)
+                return 0
+            if self.dry_run:
+                self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
+            else:
+                _, response = self.session.api.v2.converged_service.snapshots.post(body=query_params)
+                new_snap_id = response["data"]["id"]
+                infomsg = "New snapshot '%s' of namespace %s created successfully with ID: %s"
+                self.log.info(infomsg, snap_name, namespace, new_snap_id)
+
+        return True
+
+    def create_namespace_snapshot(self, namespace, snap_name):
+        """
+        Create a namespace snapshot.
+
+        @type namespace: string representing the name of the namespace
+        @type snap_name: string representing the name of the new snapshot
+        """
+        new_snap_status = self._converged_service_snapshot_api(snap_name, namespace)
+
+        return new_snap_status
+
+    def delete_namespace_snapshot(self, namespace, snap_name):
+        """
+        Delete a namespace snapshot.
+
+        @type namespace: name of the filesystem of the snapshot to delete
+        @type snap_name: string representing the name of the snapshot to delete
+        """
+        del_snap_status = self._converged_service_snapshot_api(snap_name, namespace, delete=True)
+
+        return del_snap_status
+
     def list_snapshots(self, filesystem, fileset=None):
         """
         List the snapshots in the given filesystem or dtree fileset
@@ -1937,7 +2001,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
     def _file_service_snapshot_api(self, snap_name, fs_name, fileset_name=None, delete=False):
         """
-        Create or delete a snapshot in OceanStor
+        Create or delete a filesystem snapshot in OceanStor
 
         @type snap_name: string representing the name of the new snapshot
         @type fs_name: name of the filesystem of the new snapshot

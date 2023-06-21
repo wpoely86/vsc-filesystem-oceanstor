@@ -155,6 +155,22 @@ API_RESPONSE = {
             "description": "",
         },
     },
+    "converged_service.snapshots.post": {
+        "data": {
+            "id": "287762808832@1335",
+        },
+        "result": {
+            "code": 0,
+            "description": "",
+        },
+    },
+    "converged_service.snapshots.delete": {
+        "data": {},
+        "result": {
+            "code": 0,
+            "description": "",
+        },
+    },
     "file_service.dtrees": {
         "data": [
             {
@@ -353,11 +369,13 @@ class StorageTest(TestCase):
     session.api.v2.data_service.storagepool.get.return_value = (0, API_RESPONSE["data_service.storagepool"])
     session.api.v2.file_service.snapshots.post.return_value = (0, API_RESPONSE["file_service.snapshots.post"])
     session.api.v2.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
+    session.api.v2.converged_service.snapshots.post.return_value = (0, API_RESPONSE["converged_service.snapshots.post"])
+    session.api.v2.converged_service.snapshots.delete.return_value = (0, API_RESPONSE["converged_service.snapshots.delete"])
     # queries related to dtrees have variable outcome depending on arguments
     session.api.v2.get.side_effect = api_response_get_side_effect
+    session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
     session.api.v2.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
     session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
-    session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
     session.api.v2.converged_service.namespaces.get.side_effect = api_response_namespaces_side_effect
     session.api.v2.converged_service.snapshots.get.side_effect = api_response_namespace_snapshots_side_effect
 
@@ -625,6 +643,24 @@ class StorageTest(TestCase):
         snap_reference = ["SNAP_OBJ_01"]
         self.assertEqual(O.list_namespace_snapshots("object"), snap_reference)
         self.assertRaises(oceanstor.OceanStorOperationError, O.list_namespace_snapshots, "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_create_namespace_snapshot(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        self.assertEqual(O.create_namespace_snapshot("object", "NEW_SNAPSHOT"), True)
+        self.assertEqual(O.create_namespace_snapshot("object", "SNAP_OBJ_01"), 0)
+        self.assertRaises(
+            oceanstor.OceanStorOperationError, O.create_namespace_snapshot, "nonexistent", "NEW_SNAPSHOT"
+        )
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_delete_namespace_snapshot(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        self.assertEqual(O.delete_namespace_snapshot("object", "SNAP_OBJ_01"), True)
+        self.assertEqual(O.delete_namespace_snapshot("object", "NONEXISTENT"), 0)
+        self.assertRaises(
+            oceanstor.OceanStorOperationError, O.delete_namespace_snapshot, "nonexistent", "SNAP_TEST_01"
+        )
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_snapshots(self):
