@@ -1935,6 +1935,49 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return snapshots
 
+    def _file_service_snapshot_api(self, snap_name, fs_name, fileset_name=None, delete=False):
+        """
+        Create or delete a snapshot in OceanStor
+
+        @type snap_name: string representing the name of the new snapshot
+        @type fs_name: name of the filesystem of the new snapshot
+        @type fileset_name: name of the dtree fileset of the new snapshot
+        @type delete: boolean to switch between creation/deletion of snapshots
+        """
+        snapshots = self.list_snapshots(fs_name, fileset_name)
+
+        query_params = {
+            "name": str(snap_name),
+            "file_system_name": fs_name,
+        }
+        if fileset_name is not None:
+            query_params["dtree_name"] = fileset_name
+
+        if delete is True:
+            # DELETE query to delete snapshot
+            if snap_name not in snapshots:
+                self.log.error("Snapshot '%s' does not exist in filesystem %s!", snap_name, fs_name)
+                return 0
+            if self.dry_run:
+                self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
+            else:
+                _, response = self.session.api.v2.file_service.snapshots.delete(body=query_params)
+                deletion_status = response["result"]["code"]
+                self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
+        else:
+            # POST query to create snapshot
+            if snap_name in snapshots:
+                self.log.error("Snapshot '%s' already exists for filesystem %s!", snap_name, fs_name)
+                return 0
+            if self.dry_run:
+                self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
+            else:
+                _, response = self.session.api.v2.file_service.snapshots.post(body=query_params)
+                new_snap_id = response["data"]["id"]
+                self.log.info("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
+
+        return True
+
     def create_filesystem_snapshot(self, fsname, snapname, filesets=None):
         """
         Create a filesystem snapshot. If filesets is None, it's full system snapshots
@@ -1957,42 +2000,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # the snapshot namespace of all filesets is shared in OceanStor
                 fileset_snapname = self._fileset_snapshot_name(fileset, snapname)
 
-                new_snap_status = self._new_snapshot_api(fileset_snapname, fsname, fileset)
+                new_snap_status = self._file_service_snapshot_api(fileset_snapname, fsname, fileset)
         else:
             # filesystem snapshot
-            new_snap_status = self._new_snapshot_api(snapname, fsname, None)
+            new_snap_status = self._file_service_snapshot_api(snapname, fsname, None)
 
         return new_snap_status
-
-    def _new_snapshot_api(self, snap_name, fs_name, fileset_name=None):
-        """
-        Create new snapshot in OceanStor
-
-        @type snap_name: string representing the name of the new snapshot
-        @type fs_name: name of the filesystem of the new snapshot
-        @type fileset_name: name of the dtree fileset of the new snapshot
-        """
-        snapshots = self.list_snapshots(fs_name, fileset_name)
-        if snap_name in snapshots:
-            self.log.error("Snapshot '%s' already exists for filesystem %s!", snap_name, fs_name)
-            return 0
-
-        query_params = {
-            "name": str(snap_name),
-            "file_system_name": fs_name,
-        }
-
-        if fileset_name is not None:
-            query_params["dtree_name"] = fileset_name
-
-        if self.dry_run:
-            self.log.info("(dryrun) New snapshot '%s' creation query: %s", snap_name, query_params)
-        else:
-            _, response = self.session.api.v2.file_service.snapshots.post(body=query_params)
-            new_snap_id = response["data"]["id"]
-            self.log.info("New snapshot '%s' created successfully with ID: %s", snap_name, new_snap_id)
-
-        return True
 
     def delete_filesystem_snapshot(self, fsname, snapname, fileset=None):
         """
@@ -2011,39 +2024,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             snapname = self._fileset_snapshot_name(fileset, snapname)
 
         # delete snapshot
-        del_snap_status = self._del_snapshot_api(snapname, fsname, fileset)
+        del_snap_status = self._file_service_snapshot_api(snapname, fsname, fileset, delete=True)
 
         return del_snap_status
-
-    def _del_snapshot_api(self, snap_name, fs_name, fileset_name=None):
-        """
-        Delete existing snapshot in OceanStor
-
-        @type snap_name: string representing the name of the snapshot to delete
-        @type fs_name: name of the filesystem of the snapshot to delete
-        @type fileset_name: name of the dtree fileset of the snapshot to delete
-        """
-        snapshots = self.list_snapshots(fs_name, fileset_name)
-        if snap_name not in snapshots:
-            self.log.error("Snapshot '%s' does not exist in filesystem %s!", snap_name, fs_name)
-            return 0
-
-        query_params = {
-            "name": str(snap_name),
-            "file_system_name": fs_name,
-        }
-
-        if fileset_name is not None:
-            query_params["dtree_name"] = fileset_name
-
-        if self.dry_run:
-            self.log.info("(dryrun) Snapshot '%s' deletion query: %s", snap_name, query_params)
-        else:
-            _, response = self.session.api.v2.file_service.snapshots.delete(body=query_params)
-            deletion_status = response["result"]["code"]
-            self.log.info("Snapshot '%s' deleted successfully (status: %s)", snap_name, deletion_status)
-
-        return True
 
     def _fileset_snapshot_name(self, fileset, snapshot_basename):
         """
