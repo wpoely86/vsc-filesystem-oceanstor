@@ -105,23 +105,73 @@ API_RESPONSE = {
             "description": "",
         },
     },
+    "converged_service.snapshots": {
+        "data": [
+            {
+                "description": "",
+                "dtree_id": "10@0",
+                "dtree_name": "",
+                "id": "128849018880@34585",
+                "name": "SNAP_TEST_01",
+                "namespace_id": 10,
+                "namespace_name": "test",
+                "rollback_begin_time": 0,
+                "rollback_end_time": 0,
+                "rollback_progress": 0,
+                "snap_type": 1,
+                "status": 1,
+            },
+            {
+                "description": "",
+                "dtree_id": "10@0",
+                "dtree_name": "",
+                "id": "128849018880@34590",
+                "name": "SNAP_TEST_02",
+                "namespace_id": 10,
+                "namespace_name": "test",
+                "rollback_begin_time": 0,
+                "rollback_end_time": 0,
+                "rollback_progress": 0,
+                "snap_type": 1,
+                "status": 1,
+            },
+            {
+                "description": "",
+                "dtree_id": "20@0",
+                "dtree_name": "",
+                "id": "287762808832@1332",
+                "name": "SNAP_OBJ_01",
+                "namespace_id": 20,
+                "namespace_name": "object",
+                "rollback_begin_time": 0,
+                "rollback_end_time": 0,
+                "rollback_progress": 0,
+                "snap_type": 1,
+                "status": 1,
+            },
+        ],
+        "result": {
+            "code": 0,
+            "description": "",
+        },
+    },
     "file_service.dtrees": {
         "data": [
             {
                 "group": "",
-                "id": "30@4097",
+                "id": "10@4097",
                 "name": "dttest",
                 "owner": "",
             },
             {
                 "group": "",
-                "id": "30@4098",
+                "id": "10@4098",
                 "name": "dttest2",
                 "owner": "",
             },
             {
                 "group": "",
-                "id": "30@40963",
+                "id": "10@40963",
                 "name": "100",
                 "owner": "",
             },
@@ -134,17 +184,17 @@ API_RESPONSE = {
     "file_service.snapshots.fs": {
         "data": [
             {
-                "dtree_id": "30@0",
+                "dtree_id": "10@0",
                 "dtree_name": "",
-                "file_system_id": 30,
+                "file_system_id": 10,
                 "file_system_name": "test",
                 "id": "128849018880@34585",
                 "name": "SNAP_TEST_01",
             },
             {
-                "dtree_id": "30@0",
+                "dtree_id": "10@0",
                 "dtree_name": "",
-                "file_system_id": 30,
+                "file_system_id": 10,
                 "file_system_name": "test",
                 "id": "128849018880@34590",
                 "name": "SNAP_TEST_02",
@@ -158,17 +208,17 @@ API_RESPONSE = {
     "file_service.snapshots.dtree": {
         "data": [
             {
-                "dtree_id": "30@4097",
+                "dtree_id": "10@4097",
                 "dtree_name": "dttest",
-                "file_system_id": 30,
+                "file_system_id": 10,
                 "file_system_name": "test",
                 "id": "128849022977@1073776411",
                 "name": "dttest_SNAP_TEST_01",
             },
             {
-                "dtree_id": "30@4097",
+                "dtree_id": "10@4097",
                 "dtree_name": "dttest",
-                "file_system_id": 30,
+                "file_system_id": 10,
                 "file_system_name": "test",
                 "id": "128849022977@1073776413",
                 "name": "dttest_SNAP_TEST_03",
@@ -274,6 +324,23 @@ def api_response_namespaces_side_effect(filter=None, **kwargs):
 
     return (0, response)
 
+def api_response_namespace_snapshots_side_effect(filter=None, *args, **kwargs):
+    """
+    Mock GET responses of converged_service/snapshots depending on filter
+    """
+    unfilter_response = API_RESPONSE["converged_service.snapshots"]
+
+    if filter is None:
+        return (0, unfilter_response)
+
+    params = json.loads(filter)
+    namespace_id = params[0]["namespace_id"]
+
+    response = {"data": []}
+    response["data"] = [snap for snap in unfilter_response["data"] if snap["namespace_id"] == namespace_id]
+
+    return (0, response)
+
 
 class StorageTest(TestCase):
     """
@@ -292,6 +359,7 @@ class StorageTest(TestCase):
     session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
     session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
     session.api.v2.converged_service.namespaces.get.side_effect = api_response_namespaces_side_effect
+    session.api.v2.converged_service.snapshots.get.side_effect = api_response_namespace_snapshots_side_effect
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_get_account_info(self):
@@ -403,7 +471,7 @@ class StorageTest(TestCase):
             "account_id": "0000000002",
         }
         self.assertEqual(O.get_namespace_info("test"), ns_test)
-        self.assertRaises(oceanstor.OceanStorOperationError, O.get_filesystem_info, "nonexistent")
+        self.assertRaises(oceanstor.OceanStorOperationError, O.get_namespace_info, "nonexistent")
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_filesystems(self):
@@ -462,27 +530,27 @@ class StorageTest(TestCase):
     def test_list_filesets(self):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         dt_test = {
-            "30@4097": {
+            "10@4097": {
                 "group": "",
-                "id": "30@4097",
+                "id": "10@4097",
                 "name": "dttest",
                 "owner": "",
                 "parent_dir": "/test",
             },
         }
         dt_test2 = {
-            "30@4098": {
+            "10@4098": {
                 "group": "",
-                "id": "30@4098",
+                "id": "10@4098",
                 "name": "dttest2",
                 "owner": "",
                 "parent_dir": "/test",
             },
         }
         dt_users = {
-            "30@40963": {
+            "10@40963": {
                 "group": "",
-                "id": "30@40963",
+                "id": "10@40963",
                 "name": "100",
                 "owner": "",
                 "parent_dir": "/test",
@@ -512,9 +580,9 @@ class StorageTest(TestCase):
         dt_outdated = {
             "data": {},
             "test": {
-                "30@00001": {
+                "10@00001": {
                     "group": "",
-                    "id": "30@00001",
+                    "id": "10@00001",
                     "name": "outdated",
                     "owner": "",
                     "parent_dir": "/test",
@@ -532,14 +600,14 @@ class StorageTest(TestCase):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         dt_test = {
             "group": "",
-            "id": "30@4097",
+            "id": "10@4097",
             "name": "dttest",
             "owner": "",
             "parent_dir": "/test",
         }
         dt_users = {
             "group": "",
-            "id": "30@40963",
+            "id": "10@40963",
             "name": "100",
             "owner": "",
             "parent_dir": "/test",
@@ -549,6 +617,14 @@ class StorageTest(TestCase):
         self.assertEqual(O.get_fileset_info("test", "nonexistent"), None)
         self.assertEqual(O.get_fileset_info("test", "100"), dt_users)
         self.assertEqual(O.get_fileset_info("test", "vsc100"), dt_users)
+
+    def test_list_namespace_snapshots(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        snap_reference = ["SNAP_TEST_01", "SNAP_TEST_02"]
+        self.assertEqual(O.list_namespace_snapshots("test"), snap_reference)
+        snap_reference = ["SNAP_OBJ_01"]
+        self.assertEqual(O.list_namespace_snapshots("object"), snap_reference)
+        self.assertRaises(oceanstor.OceanStorOperationError, O.list_namespace_snapshots, "nonexistent")
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_snapshots(self):

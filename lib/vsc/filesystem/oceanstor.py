@@ -1894,6 +1894,22 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return expired
 
+    def list_namespace_snapshots(self, namespace):
+        """
+        List the snapshots in the given namespace
+
+        @type namespace: name of the namespace
+        """
+
+        ns = self.get_namespace_info(namespace)
+        filter_json = {"namespace_id": int(ns["id"])}
+        filter_json = json.dumps([filter_json], separators=OCEANSTOR_JSON_SEP)
+        _, response = self.session.api.v2.converged_service.snapshots.get(pagination=True, filter=filter_json)
+
+        snapshots = [snap["name"] for snap in response["data"]]
+
+        return snapshots
+
     def list_snapshots(self, filesystem, fileset=None):
         """
         List the snapshots in the given filesystem or dtree fileset
