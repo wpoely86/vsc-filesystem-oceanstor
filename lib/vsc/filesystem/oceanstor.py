@@ -472,8 +472,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # Save selection of attributes for this namespace
                 namespaces[acc_id] = {ns["name"]: {attr: ns[attr] for attr in ns_attrs} for ns in response["data"]}
 
-        # Update cache of namespaces with the selected accounts
-        self.oceanstor_namespaces.update(namespaces)
+                # Update cache of namespaces with this account
+                self.oceanstor_namespaces[acc_id] = namespaces[acc_id]
 
         # Filter on storage pools
         # Support special case 'all' for downstream compatibility
@@ -678,13 +678,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
                 dtree_filesets[fs_name] = fs_dtree
 
+                # Update cache of dtree filesets in the selected filesystem
+                self.oceanstor_filesets[fs_name] = fs_dtree
+
             dt_names = [dt["name"] for dt in dtree_filesets[fs_name].values()]
             self.log.debug(
                 "%sDtree filesets in OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(dt_names)
             )
-
-        # Update dtree filesets in the selected filesystems
-        self.oceanstor_filesets.update(dtree_filesets)
 
         # Filter by fileset name
         if filesetnames is not None:
@@ -858,11 +858,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 fs_nfs_shares = {ns["id"]: ns for ns in response["data"]}
                 nfs_shares[fs_name] = fs_nfs_shares
 
+                # Update cache of NFS shares in selected filesystem
+                self.oceanstor_nfsshares[fs_name] = fs_nfs_shares
+
             nfs_desc = [f"'{ns['description']}'" for ns in nfs_shares[fs_name].values()]
             self.log.debug("%sNFS shares in OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(nfs_desc))
-
-        # Store all NFS shares in selected filesystems
-        self.oceanstor_nfsshares.update(nfs_shares)
 
         return nfs_shares
 
@@ -924,13 +924,13 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 share_client = {nc["id"]: nc for nc in response["data"]}
                 nfs_clients[ns_id] = share_client
 
+                # Update cache of NFS clients in selected share
+                self.oceanstor_nfsclients[ns_id] = share_client
+
             nc_access_name = [f"'{nc['access_name']}'" for nc in nfs_clients[ns_id].values()]
             self.log.debug(
                 "%sNFS clients for OceanStor NFS share ID '%s': %s", dbg_prefix, ns_id, ", ".join(nc_access_name)
             )
-
-        # Store all NFS shares in selected filesystems
-        self.oceanstor_nfsclients.update(nfs_clients)
 
         return nfs_clients
 
@@ -1420,17 +1420,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                                 # regular quota
                                 fs_quotas[quota_type].update(quota_entry)
 
-                default_quotas[fs_name] = fs_default_quotas
                 quotas[fs_name] = fs_quotas
+                default_quotas[fs_name] = fs_default_quotas
+
+                # Update cache of quotas in selected filesystem
+                self.oceanstor_quotas[fs_name] = fs_quotas
+                self.oceanstor_defaultquotas[fs_name] = fs_default_quotas
 
             quota_count = [f"{qt.name} = {len(quotas[fs_name][qt.name])}" for qt in QuotaType]
             self.log.debug(
                 "%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(quota_count)
             )
-
-        # Store all regular quotas in selected filesystems
-        self.oceanstor_quotas.update(quotas)
-        self.oceanstor_defaultquotas.update(default_quotas)
 
         if only_default:
             return default_quotas
