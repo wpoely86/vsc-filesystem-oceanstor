@@ -211,7 +211,7 @@ class OceanStorClient(Client):
         try:
             status, response = super(OceanStorClient, self).request(method, url, body, headers, content_type)
         except HTTPError as err:
-            errmsg = "OceanStor query failed with HTTP error: %s (%s)" % (err.reason, err.code)
+            errmsg = f"OceanStor query failed with HTTP error: {err.reason} ({err.code})"
             fancylogger.getLogger().error(errmsg)
             raise
 
@@ -219,7 +219,7 @@ class OceanStorClient(Client):
         try:
             result = response["result"]
         except (KeyError, TypeError) as err:
-            errmsg = "OceanStor response lacks resulting status: %s" % response
+            errmsg = f"OceanStor response lacks resulting status: {response}"
             fancylogger.getLogger().raiseException(errmsg, exception=err.__class__)
 
         try:
@@ -238,8 +238,7 @@ class OceanStorClient(Client):
             if "suggestion" in result:
                 ec_msg_desc += " " + result["suggestion"]
 
-        ec_msg = "%s (%s)" % (exit_code, ec_msg_desc)
-        ec_full_msg = "OceanStor query returned exit code: %s" % ec_msg
+        ec_full_msg = f"OceanStor query returned exit code: {exit_code} ({ec_msg_desc})"
         if exit_code != 0:
             fancylogger.getLogger().raiseException(ec_full_msg, exception=RuntimeError)
         else:
@@ -337,7 +336,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             ostor_account = response["data"][0]
         except IndexError:
-            errmsg = "OceanStor account not found: %s" % account_name
+            errmsg = f"OceanStor account not found: {account_name}"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         return ostor_account
@@ -420,7 +419,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError as err:
             sp_miss = err.args[0]
             sp_avail = ", ".join(storage_pools)
-            errmsg = "Storage pool '%s' not found in OceanStor. Use any of: %s" % (sp_miss, sp_avail)
+            errmsg = f"Storage pool '{sp_miss}' not found in OceanStor. Use any of: {sp_avail}"
             self.log.raiseException(errmsg, KeyError)
 
         # Convert names to IDs
@@ -509,7 +508,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             return oceanstor_namespaces[account[0]][namespace]
         except (KeyError, IndexError):
-            errmsg = "OceanStor has no information for namespace %s" % (namespace)
+            errmsg = f"OceanStor has no information for namespace {namespace}"
             self.log.raiseException(errmsg, OceanStorOperationError)
             return None
 
@@ -583,8 +582,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             try:
                 target_filesystems_id = [int(fs_id) for fs_id in target_filesystems]
             except ValueError:
-                errmsg = "Malformed list of filesystem IDs: %s"
-                self.log.raiseException(errmsg % ", ".join([str(fs_id) for fs_id in target_filesystems]), ValueError)
+                comma_sep_ids = ", ".join([str(fs_id) for fs_id in target_filesystems])
+                self.log.raiseException(f"Malformed list of filesystem IDs: {comma_sep_ids}", ValueError)
             else:
                 # Convert known IDs to names
                 for n, fs_id in enumerate(target_filesystems_id):
@@ -601,7 +600,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError as err:
             fs_miss = err.args[0]
             fs_avail = ", ".join(filesystems)
-            errmsg = "Filesystem '%s' not found in OceanStor. Use any of: %s" % (fs_miss, fs_avail)
+            errmsg = f"Filesystem '{fs_miss}' not found in OceanStor. Use any of: {fs_avail}"
             self.log.raiseException(errmsg, KeyError)
 
         # Generate dict of names and IDs
@@ -624,7 +623,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             return oceanstor_filesystems[filesystem]
         except KeyError:
-            errmsg = "OceanStor has no information for filesystem %s" % (filesystem)
+            errmsg = f"OceanStor has no information for filesystem {filesystem}"
             self.log.raiseException(errmsg, OceanStorOperationError)
             return None
 
@@ -727,7 +726,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             filesystem_fsets = self.oceanstor_filesets[filesystem_name]
         except KeyError:
-            errmsg = "OceanStor has no fileset information for filesystem %s" % filesystem_name
+            errmsg = f"OceanStor has no fileset information for filesystem {filesystem_name}"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Convert VSC fileset name to OceanStor ones
@@ -753,7 +752,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             fileset_name = self.oceanstor_filesets[filesystem_name][fileset_id]["name"]
         except KeyError:
-            errmsg = "Fileset ID '%s' not found in OceanStor filesystem '%s'" % (fileset_id, filesystem_name)
+            errmsg = f"Fileset ID '{fileset_id}' not found in OceanStor filesystem '{filesystem_name}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Convert non-standard names to be VSC compliant
@@ -783,7 +782,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 fileset_id = quota_obj.parentId
 
         if fileset_id is None:
-            errmsg = "Fileset quota '%s' not found in OceanStor filesystem '%s'" % (quota_id, filesystem_name)
+            errmsg = f"Fileset quota '{quota_id}' not found in OceanStor filesystem '{filesystem_name}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         self.log.debug("Quota '%s' is attached to fileset: %s", quota_id, fileset_id)
@@ -804,7 +803,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         elif quota_id in quotas[filesystem_name][Typ2Param.GRP.value]:
             usrgrp_quota = quotas[filesystem_name][Typ2Param.GRP.value][quota_id]
         else:
-            errmsg = "User/Group quota '%s' not found in OceanStor filesystem '%s'" % (quota_id, filesystem_name)
+            errmsg = f"User/Group quota '{quota_id}' not found in OceanStor filesystem '{filesystem_name}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         owner_id = self.vsc.uid_to_uid_number(usrgrp_quota.ownerName)
@@ -859,7 +858,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 fs_nfs_shares = {ns["id"]: ns for ns in response["data"]}
                 nfs_shares[fs_name] = fs_nfs_shares
 
-            nfs_desc = ["'%s'" % ns["description"] for ns in nfs_shares[fs_name].values()]
+            nfs_desc = [f"'{ns['description']}'" for ns in nfs_shares[fs_name].values()]
             self.log.debug("%sNFS shares in OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(nfs_desc))
 
         # Store all NFS shares in selected filesystems
@@ -925,7 +924,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 share_client = {nc["id"]: nc for nc in response["data"]}
                 nfs_clients[ns_id] = share_client
 
-            nc_access_name = ["'%s'" % nc["access_name"] for nc in nfs_clients[ns_id].values()]
+            nc_access_name = [f"'{nc['access_name']}'" for nc in nfs_clients[ns_id].values()]
             self.log.debug(
                 "%sNFS clients for OceanStor NFS share ID '%s': %s", dbg_prefix, ns_id, ", ".join(nc_access_name)
             )
@@ -953,7 +952,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             nfs_servers = [IPv4Address(ip) for ip in nfs_servers]
         except AddressValueError:
-            errmsg = "Received malformed server IPs from OceanStor: %s" % comma_sep_ips
+            errmsg = f"Received malformed server IPs from OceanStor: {comma_sep_ips}"
             self.log.raiseException(errmsg, OceanStorOperationError)
         else:
             self.log.debug("NFS servers in OceanStor: %s", comma_sep_ips)
@@ -998,7 +997,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         server_ip_str = server_ip_str.decode("utf-8")
                     server_ip = IPv4Address(server_ip_str)
                 except AddressValueError:
-                    errmsg = "Error converting address of NFS server to an IPv4: %s" % server_address
+                    errmsg = f"Error converting address of NFS server to an IPv4: {server_address}"
                     self.log.raiseException(errmsg, OceanStorOperationError)
 
                 oceanstor_nfs_servers = self.list_nfs_servers()
@@ -1010,8 +1009,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                         dbgmsg = "Local NFS mount '%s' is served by OceanStor and shares object ID: %s"
                         self.log.debug(dbgmsg, mount_point, oceanstor_tag)
                     else:
-                        errmsg = "NFS mount '%s' served from OceanStor '%s' shares unknown path '%s'"
-                        errmsg = errmsg % (mount_point, str(server_ip), share_path)
+                        errmsg = (
+                            f"NFS mount '{mount_point}' served from OceanStor '{str(server_ip)}' "
+                            f"shares unknown path '{share_path}'"
+                        )
                         self.log.raiseException(errmsg, OceanStorOperationError)
 
             # Add filesystem name in OceanStor to all mounts (even if None)
@@ -1027,12 +1028,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Sanity checks of local path
         if not self.exists(local_path):
-            errmsg = "Path '%s' does not exist in local system."
-            self.log.raiseException(errmsg % local_path, OceanStorOperationError)
+            errmsg = f"Path '{local_path}' does not exist in local system."
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         if not os.path.isdir(local_path):
-            errmsg = "Path '%s' is not a directory. Cannot identify OceanStor object."
-            self.log.raiseException(errmsg % local_path, OceanStorOperationError)
+            errmsg = f"Path '{local_path}' is not a directory. Cannot identify OceanStor object."
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         local_path = os.path.realpath(local_path)  # resolve symlinks
 
@@ -1042,7 +1043,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Check NFS mount source
         oceanstor_id = local_fs[self.localfilesystemnaming.index(LOCAL_FS_OCEANSTOR)]
         if oceanstor_id is None:
-            errmsg = "NFS mount of '%s' is not from OceanStor" % local_path
+            errmsg = f"NFS mount of '{local_path}' is not from OceanStor"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # OceanStor IDs
@@ -1052,8 +1053,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         local_mount = local_fs[self.localfilesystemnaming.index("mountpoint")]
         local_path_relative = os.path.relpath(local_path, start=local_mount)
         if local_path_relative.startswith(".."):
-            errmsg = "Local path '%s' was resolved outside mountpoint boundaries '%s'"
-            self.log.raiseException(errmsg % (local_path_relative, local_mount), OceanStorOperationError)
+            errmsg = f"Local path '{local_path_relative}' was resolved outside mountpoint boundaries '{local_mount}'"
+            self.log.raiseException(errmsg, OceanStorOperationError)
         elif local_path_relative == ".":
             local_path_relative = ""
 
@@ -1139,8 +1140,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         for banned_fs in BANNED_FILESET_NAMES:
             banned_fs_name = banned_fs[0][0]
             if banned_fs_name.match(ostor_dtree_name):
-                errmsg = "Cannot create fileset with forbidden name: %s"
-                self.log.raiseException(errmsg % (ostor_dtree_name), OceanStorOperationError)
+                errmsg = f"Cannot create fileset with forbidden name: {ostor_dtree_name}"
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
         if fileset_name is None:
             vsc_fileset_name = ostor_dtree_name
@@ -1149,13 +1150,18 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Check existence of path in local filesystem
         if self.exists(dtree_fullpath):
-            errmsg = "Path of new fileset in '%s' validated as '%s' but it already exists."
-            self.log.raiseException(errmsg % (new_fileset_path, dtree_fullpath), OceanStorOperationError)
+            errmsg = (
+                f"Path of new fileset in '{new_fileset_path}' validated as '{dtree_fullpath}' but it already exists."
+            )
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         dtree_parentdir = os.path.dirname(dtree_fullpath)
         if not self.exists(dtree_parentdir):
-            errmsg = "Parent directory '%s' of new fileset '%s' does not exist. It will not be created automatically."
-            self.log.raiseException(errmsg % (dtree_parentdir, dtree_fullpath), OceanStorOperationError)
+            errmsg = (
+                f"Parent directory '{dtree_parentdir}' of new fileset '{dtree_fullpath}' does not exist. "
+                f"It will not be created automatically."
+            )
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Identify local mounted filesystem
         ostor_fs_id, ostor_dtree_id, _, ostor_parentdir = self._identify_local_path(dtree_parentdir)
@@ -1167,13 +1173,18 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.debug("NFS mount '%s' contains OceanStor filesystem '%s'", dtree_fullpath, ostor_fs_name)
         else:
             # this NFS mount contains a dtree fileset
-            errmsg = "NFS mount '%s' is already a dtree fileset (%s@%s). Nested dtrees are not allowed in OceanStor."
-            self.log.raiseException(errmsg % (dtree_fullpath, ostor_fs_id, ostor_dtree_id), OceanStorOperationError)
+            errmsg = (
+                f"NFS mount '{dtree_fullpath}' is already a dtree fileset ({ostor_fs_id}@{ostor_dtree_id}). "
+                f"Nested dtrees are not allowed in OceanStor."
+            )
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Send API request to create the new dtree fileset
-        dbgmsg = "Sending request for new dtree fileset %s in OceanStor filesystem '%s' with parent directory '%s'"
-        new_dtree_name = "'%s' (VSC: %s)" % (ostor_dtree_name, vsc_fileset_name)
-        self.log.debug(dbgmsg, new_dtree_name, ostor_fs_name, ostor_parentdir)
+        dbgmsg = (
+            f"Sending request for new dtree fileset '{ostor_dtree_name}' (VSC: {vsc_fileset_name}) "
+            f"in OceanStor filesystem '{ostor_fs_name}' with parent directory '{ostor_parentdir}'"
+        )
+        self.log.debug(dbgmsg)
 
         self.make_fileset_api(ostor_dtree_name, ostor_fs_name, parent_dir=ostor_parentdir)
 
@@ -1190,8 +1201,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 if stor.backend == LOCAL_FS_OCEANSTOR and dtree_fullpath.startswith(stor.backend_mount_point)
             ][0]
         except IndexError:
-            errmsg = "Could not find VSC storage for new fileset '%s' at: %s"
-            self.log.raiseException(errmsg % (ostor_dtree_name, ostor_parentdir), OceanStorOperationError)
+            errmsg = f"Could not find VSC storage for new fileset '{ostor_dtree_name}' at: {ostor_parentdir}"
+            self.log.raiseException(errmsg, OceanStorOperationError)
         else:
             if ostor_dtree_name[1:3] == VO_INFIX:
                 block_hard = vsc_fileset_storage.quota_vo
@@ -1227,23 +1238,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Check filesystem presence
         if filesystem_name not in self.oceanstor_filesets:
-            errmsg = "Requested filesystem '%s' for new dtree fileset '%s' not found."
-            self.log.raiseException(errmsg % (filesystem_name, fileset_name), OceanStorOperationError)
+            errmsg = f"Requested filesystem '{filesystem_name}' for new dtree fileset '{fileset_name}' not found."
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Check if a dtree fileset with this name alreay exists
         for dt in self.oceanstor_filesets[filesystem_name].values():
             if dt["name"] == fileset_name:
-                errmsg = "Found existing dtree fileset '%s' with same name as new one '%s'"
-                self.log.raiseException(errmsg % (dt["name"], fileset_name), OceanStorOperationError)
+                errmsg = f"Found existing dtree fileset '{dt['name']}' with same name as new one '{fileset_name}'"
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Check if OceanStor name constrains for dtrees are met
         unallowed_name_chars = re.compile(r"[^a-zA-Z0-9._]")
         if unallowed_name_chars.search(fileset_name):
-            errmsg = "Name of new dtree fileset contains invalid characters: %s"
-            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+            errmsg = f"Name of new dtree fileset contains invalid characters: {fileset_name}"
+            self.log.raiseException(errmsg, OceanStorOperationError)
         elif len(fileset_name) > 255:
-            errmsg = "Name of new dtree fileset is too long (max. 255 characters): %s"
-            self.log.raiseException(errmsg % fileset_name, OceanStorOperationError)
+            errmsg = f"Name of new dtree fileset is too long (max. 255 characters): {fileset_name}"
+            self.log.raiseException(errmsg, OceanStorOperationError)
         else:
             self.log.debug("Validated name of new dtree fileset: %s", fileset_name)
 
@@ -1333,7 +1344,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         except KeyError as err:
             qa_miss = err.args[0]
             qa_avail = ", ".join(quota)
-            errmsg = "Quota attribute '%s' not found. List of available attributes: %s" % (qa_miss, qa_avail)
+            errmsg = f"Quota attribute '{qa_miss}' not found. List of available attributes: {qa_avail}"
             fancylogger.getLogger().raiseException(errmsg, KeyError)
 
         # Extra filesetname attribute needed by AP
@@ -1412,7 +1423,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 default_quotas[fs_name] = fs_default_quotas
                 quotas[fs_name] = fs_quotas
 
-            quota_count = ["%s = %s" % (qt.name, len(quotas[fs_name][qt.name])) for qt in QuotaType]
+            quota_count = [f"{qt.name} = {len(quotas[fs_name][qt.name])}" for qt in QuotaType]
             self.log.debug(
                 "%sQuota types for OceanStor filesystem '%s': %s", dbg_prefix, fs_name, ", ".join(quota_count)
             )
@@ -1440,11 +1451,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         quota_path = self._sanity_check(obj)
         if not self.dry_run and not self.exists(quota_path):
-            errmsg = "getQuota: can't get quota on non-existing path '%s'" % quota_path
+            errmsg = f"getQuota: can't get quota on non-existing path '{quota_path}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         if typ not in [qt.name for qt in QuotaType]:
-            errmsg = "getQuota: unknown quota type '%s'" % typ
+            errmsg = f"getQuota: unknown quota type '{typ}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Identify OceanStor object in path
@@ -1473,8 +1484,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
             if len(fileset) > 1:
                 # there cannot be more than one match for any path
-                errmsg = "getQuota: found multiple filesets mathing path '%s' in OceanStor filesystem '%s': %s"
-                self.log.raiseException(errmsg % (quota_path, ostor_mount, ",".join(fileset)), OceanStorOperationError)
+                errmsg = (
+                    f"getQuota: found multiple filesets mathing path '{quota_path}' "
+                    f"in OceanStor filesystem '{ostor_mount}': {', '.join(fileset)}"
+                )
+                self.log.raiseException(errmsg, OceanStorOperationError)
             else:
                 # no fileset found, continue looking up the path
                 dbgmsg = "getQuota: no fileset found matching path '%s' in OceanStor filesystem '%s'"
@@ -1487,7 +1501,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 parent_id = ostor_fs_id
             else:
                 # mount point is a dtree fileset
-                parent_id = "%s@%s" % (ostor_fs_id, ostor_dtree_id)
+                parent_id = f"{ostor_fs_id}@{ostor_dtree_id}"
             self.log.debug("getQuota: quota path is root of NFS mount for OceanStor object: %s", parent_id)
 
         # Find quotas attached to parent object
@@ -1588,11 +1602,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         quota_path = self._sanity_check(obj)
         if not self.dry_run and not self.exists(quota_path):
-            errmsg = "setQuota: can't set quota on non-existing path '%s'" % quota_path
+            errmsg = f"setQuota: can't set quota on non-existing path '{quota_path}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         if typ not in [qt.name for qt in QuotaType]:
-            errmsg = "setQuota: unknown quota type '%s'" % typ
+            errmsg = f"setQuota: unknown quota type '{typ}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Check existing quotas on local object
@@ -1656,8 +1670,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if typ in ["user", "group"]:
             # settings for user/group quotas
             if who is None:
-                errmsg = "Cannot ser user/group quota on '%s', account information missing."
-                self.log.raiseException(errmsg % quota_parent, OceanStorOperationError)
+                errmsg = f"Cannot ser user/group quota on '{quota_parent}', account information missing."
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
             query_params["usr_grp_owner_name"] = str(who)
 
@@ -1666,7 +1680,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 query_params["usr_grp_type"] = 1
             else:
                 # LDAP user/group
-                usr_grp_type = "domain_%s" % typ
+                usr_grp_type = f"domain_{typ}"
                 query_params["usr_grp_type"] = OCEANSTOR_QUOTA_USER_TYPE[usr_grp_type]
                 query_params["domain_type"] = OCEANSTOR_QUOTA_DOMAIN_TYPE["LDAP"]
 
@@ -1717,8 +1731,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if hard is None:
                 hard = int(soft * OCEANSTOR_QUOTA_FACTOR)
             elif hard < soft:
-                errmsg = "setQuota: can't set a hard limit %s lower than soft limit %s"
-                self.log.raiseException(errmsg % (hard, soft), OceanStorOperationError)
+                errmsg = f"setQuota: can't set a hard limit {hard} lower than soft limit {soft}"
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
             # Space quota limits
             query_params["space_soft_quota"] = soft
@@ -1729,8 +1743,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             if inode_hard is None:
                 inode_hard = int(inode_soft * OCEANSTOR_QUOTA_FACTOR)
             elif inode_hard < inode_soft:
-                errmsg = "setQuota: can't set hard inode limit %s lower than soft inode limit %s"
-                self.log.raiseException(errmsg % (inode_hard, inode_soft), OceanStorOperationError)
+                errmsg = f"setQuota: can't set hard inode limit {inode_hard} lower than soft inode limit {inode_soft}"
+                self.log.raiseException(errmsg, OceanStorOperationError)
 
             # Inodes quota limits
             query_params["file_soft_quota"] = inode_soft
@@ -1788,11 +1802,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         quota_path = self._sanity_check(obj)
         if not self.dry_run and not self.exists(quota_path):
-            errmsg = "setGrace: can't set grace on non-existing path '%s'" % quota_path
+            errmsg = f"setGrace: can't set grace on non-existing path '{quota_path}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         if typ not in [qt.name for qt in QuotaType]:
-            errmsg = "setGrace: unknown quota type '%s'" % typ
+            errmsg = f"setGrace: unknown quota type '{typ}'"
             self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Find all existing quotas attached to local object
@@ -1808,7 +1822,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 )
                 self.log.debug(dbgmsg, typ, who, quota_parent)
             else:
-                errmsg = "setGrace: %s quota of '%s' not found" % (typ, quota_path)
+                errmsg = f"setGrace: {typ} quota of '{quota_path}' not found"
                 self.log.raiseException(errmsg, OceanStorOperationError)
 
         # Set grace period
@@ -1988,7 +2002,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         if fileset is not None:
             dtree = self.get_fileset_info(filesystem, fileset)
             if dtree is None:
-                err_msg = "Snapshot query failed: fileset '%s' not found in filesystem '%s'" % (filesystem, fileset)
+                err_msg = f"Snapshot query failed: fileset '{fileset}' not found in filesystem '{filesystem}'"
                 self.log.raiseException(err_msg, OceanStorOperationError)
             filter_json["dtree_id"] = dtree["id"]
 
@@ -2098,7 +2112,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Return unique snapshot name for a given fileset
         """
         # prefix filset name to snapshot name
-        fileset_snapshot = "%s_%s" % (fileset, snapshot_basename)
+        fileset_snapshot = f"{fileset}_{snapshot_basename}"
 
         dbgmsg = "Snapshot name of dtree fileset '%s' changed from '%s' to '%s' to avoid name collision"
         self.log.debug(dbgmsg, fileset, snapshot_basename, fileset_snapshot)
