@@ -11,7 +11,7 @@ resources:
       type: github
       endpoint: vub-hpc
       name: vub-hpc/azure-pipelines-template
-      ref: refs/heads/legacy
+      ref: refs/heads/vsc
     # add hpcugent/vsc-config repo
     - repository: vsc-config
       type: github
@@ -20,7 +20,7 @@ resources:
 
 # run tox test jobs
 jobs:
-  - template: run-tox-env.yml@vub-hpc
+  - template: run-tox-vsc-env.yml@vub-hpc
     parameters:
       jobs:
         py39:
