@@ -503,7 +503,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @raise OceanStorOperationError: if there is no namespace with the given name
         """
         oceanstor_namespaces = self.list_namespaces()
-        account = [ns for ns in oceanstor_namespaces if namespace in oceanstor_namespaces[ns]]
+        account = [acc for acc in oceanstor_namespaces if namespace in oceanstor_namespaces[acc]]
 
         try:
             return oceanstor_namespaces[account[0]][namespace]
