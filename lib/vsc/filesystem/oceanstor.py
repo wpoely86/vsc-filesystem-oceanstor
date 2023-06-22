@@ -230,7 +230,7 @@ class OceanStorClient(Client):
             exit_code = result
             ec_msg_desc = ""
             if "data" in response:
-                ec_msg_desc = response["data"]["errorMsg"]
+                ec_msg_desc = response["data"].get("errorMsg", "")
                 if "suggestion" in response["data"]:
                     ec_msg_desc += " " + response["data"]["suggestion"]
         else:
