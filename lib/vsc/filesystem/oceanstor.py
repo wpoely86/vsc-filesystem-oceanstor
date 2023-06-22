@@ -478,7 +478,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         # Filter on storage pools
         # Support special case 'all' for downstream compatibility
         if pool is None or pool == "all":
-            storage_pools = self.list_storage_pools()
+            storage_pools = self.list_storage_pools(update=update)
             pool = list(storage_pools.keys())
         filter_pool = self.select_storage_pools(pool, byid=True)
         self.log.debug("Filtering filesystems in storage pools with IDs: %s", ", ".join(str(i) for i in filter_pool))
