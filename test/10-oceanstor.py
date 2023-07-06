@@ -340,6 +340,7 @@ def api_response_namespaces_side_effect(filter=None, **kwargs):
 
     return (0, response)
 
+
 def api_response_namespace_snapshots_side_effect(filter=None, *args, **kwargs):
     """
     Mock GET responses of converged_service/snapshots depending on filter
@@ -358,6 +359,36 @@ def api_response_namespace_snapshots_side_effect(filter=None, *args, **kwargs):
     return (0, response)
 
 
+def api_response_bucket_exists_side_effect(body, **kwargs):
+    """
+    Mock POST responses of dfv/service/obsOSC/bucket_exists depending on body
+    """
+    response = {"data": {}}
+
+    try:
+        namespace_name = body["name"]
+    except KeyError:
+        return (1, response)
+
+    try:
+        namespace_id = [
+            namespace["id"] for namespace in API_RESPONSE["converged_service.namespaces"]["data"]
+            if namespace["name"] == namespace_name
+        ][0]
+    except IndexError:
+        return (1, response)
+
+    # Namespaces with ID < 20 are not buckets
+    if int(namespace_id) < 20:
+        is_bucket = False
+    else:
+        is_bucket = True
+
+    response["data"] = {"bucket_exists": is_bucket}
+
+    return (0, response)
+
+
 class StorageTest(TestCase):
     """
     Tests for various storage functions in the oceanstor lib.
@@ -371,13 +402,14 @@ class StorageTest(TestCase):
     session.api.v2.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
     session.api.v2.converged_service.snapshots.post.return_value = (0, API_RESPONSE["converged_service.snapshots.post"])
     session.api.v2.converged_service.snapshots.delete.return_value = (0, API_RESPONSE["converged_service.snapshots.delete"])
-    # queries related to dtrees have variable outcome depending on arguments
+    # queries with variable outcome depending on filter arguments
     session.api.v2.get.side_effect = api_response_get_side_effect
     session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect
     session.api.v2.file_service.dtrees.get.side_effect = api_response_dtree_side_effect
     session.api.v2.file_service.snapshots.get.side_effect = api_response_snapshots_side_effect
     session.api.v2.converged_service.namespaces.get.side_effect = api_response_namespaces_side_effect
     session.api.v2.converged_service.snapshots.get.side_effect = api_response_namespace_snapshots_side_effect
+    session.dfv.service.obsOSC.bucket_exists.post.side_effect = api_response_bucket_exists_side_effect
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_get_account_info(self):
@@ -490,6 +522,13 @@ class StorageTest(TestCase):
         }
         self.assertEqual(O.get_namespace_info("test"), ns_test)
         self.assertRaises(oceanstor.OceanStorOperationError, O.get_namespace_info, "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_is_bucket(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        self.assertEqual(O._is_bucket("test"), False)
+        self.assertEqual(O._is_bucket("object"), True)
+        self.assertRaises(oceanstor.OceanStorOperationError, O._is_bucket, "nonexistent")
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_filesystems(self):

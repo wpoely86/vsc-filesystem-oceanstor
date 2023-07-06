@@ -512,6 +512,37 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.raiseException(errmsg, OceanStorOperationError)
             return None
 
+    def _is_bucket(self, namespace):
+        """
+        Check if namespace is a bucket in OceanStor
+
+        @returns: boolean corresponding to the bucket attribute. None if undetermined due to permissions.
+        """
+        oceanstor_namespaces = self.list_namespaces()
+        known_namespaces = [namespace for acc in oceanstor_namespaces for namespace in oceanstor_namespaces[acc]]
+
+        if namespace not in known_namespaces:
+            self.log.raiseException(f"OceanStor has no information for namespace: {namespace}", OceanStorOperationError)
+
+        query_params = {
+            "name": namespace,
+        }
+
+        try:
+            _, result = self.session.dfv.service.obsOSC.bucket_exists.post(body=query_params)
+        except RuntimeError as err:
+            errmsg = getattr(err, 'message', str(err))
+            if "1077949058" in errmsg:
+                # No permissions to determine bucket attribute of this namespace
+                # a warning will be printed, return None and continue
+                is_bucket = None
+            else:
+                self.log.raiseException(errmsg, OceanStorOperationError)
+        else:
+            is_bucket = result["data"]["bucket_exists"]
+
+        return is_bucket
+
     def list_filesystems(self, device=None, pool=None, update=False):
         """
         List filesystems in OceanStor owned by our account
@@ -536,8 +567,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         else:
             # Update filesystems from namespaces data
             dbg_prefix = ""
-            account_namespaces = self.list_namespaces(pool=pool, account=self.account["name"], update=update)
-            self.oceanstor_filesystems = account_namespaces[self.account["id"]]
+            acc_namespaces = self.list_namespaces(pool=pool, account=self.account["name"], update=update)
+            # Select filesystems from namespace list. In case of not enough permissions to check bucket attribute,
+            # assume the namespace is a filesystem
+            acc_filesystem_names = [ns for ns in acc_namespaces[self.account["id"]] if not self._is_bucket(ns)]
+            acc_filesystems = {fs: acc_namespaces[self.account["id"]][fs] for fs in acc_filesystem_names}
+            self.oceanstor_filesystems = acc_filesystems
 
         filesystems = self.oceanstor_filesystems
 
