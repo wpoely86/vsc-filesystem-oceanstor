@@ -298,6 +298,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.oceanstor_storagepools = {}
         self.oceanstor_namespaces = {}
+        self.oceanstor_buckets = {}
         self.oceanstor_filesystems = {}
         self.oceanstor_filesets = {}
 
@@ -351,6 +352,23 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         accounts = [(acc["name"], acc["id"]) for acc in response["data"] if acc["status"] == "Active"]
 
         return accounts
+
+    def _validate_accounts(self, accounts):
+        """
+        Check if given accounts are active accounts in OceanStor
+        Return list with account names
+        """
+        active_accounts = self.list_active_accounts()
+
+        # Support special case 'all' for downstream compatibility
+        if accounts is None or accounts == "all":
+            accounts = [acc[0] for acc in active_accounts]
+        elif not isinstance(accounts, list):
+            accounts = [accounts]
+
+        valid_accounts = [acc[1] for acc in active_accounts if acc[0] in accounts]
+
+        return valid_accounts
 
     def list_storage_pools(self, update=False):
         """
@@ -447,13 +465,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         ns_attrs = ["id", "name", "storage_pool_id", "account_id"]
 
         # Filter on active accounts
-        # Support special case 'all' for downstream compatibility
-        active_accounts = self.list_active_accounts()
-        if account is None or account == "all":
-            account = [acc[0] for acc in active_accounts]
-        elif not isinstance(account, list):
-            account = [account]
-        filter_acc = [acc[1] for acc in active_accounts if acc[0] in account]
+        filter_acc = self._validate_accounts(account)
         self.log.debug("Filtering namespaces owned by accounts with IDs: %s", ", ".join(str(i) for i in filter_acc))
 
         namespaces = {}
@@ -531,7 +543,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         try:
             _, result = self.session.dfv.service.obsOSC.bucket_exists.post(body=query_params)
         except RuntimeError as err:
-            errmsg = getattr(err, 'message', str(err))
+            errmsg = getattr(err, "message", str(err))
             if "1077949058" in errmsg:
                 # No permissions to determine bucket attribute of this namespace
                 # a warning will be printed, return None and continue
@@ -543,11 +555,52 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         return is_bucket
 
+    def list_buckets(self, pool=None, account=None, update=False):
+        """
+        List buckets in OceanStor
+        - Buckets are namespaces in OceanStor
+        - Filter list of namespaces with those that are buckets
+
+        @type pool: list of storage pools names (if string: 1 storage pool; if None or all: all known ones)
+        @type account: list of owner account names (if string: 1 storage pool; if None or all: all known ones)
+
+        Set self.oceanstor_buckets as dict with
+        : keys per accountName and value is dict with
+        :: keys per bucketName and value is dict with
+        ::: selected keys from OceanStor:
+        - id
+        - name
+        - storage_pool_id
+        - account_id
+        """
+
+        acc_namespaces = self.list_namespaces(pool=pool, account=account, update=update)
+        active_acc = self._validate_accounts(account)
+
+        buckets = {}
+        for acc_id in active_acc:
+            if not update and acc_id in self.oceanstor_buckets:
+                # Use cached namespace data
+                dbg_prefix = "(cached) "
+                buckets[acc_id] = self.oceanstor_buckets[acc_id]
+            else:
+                # Seek buckets in namespace data
+                dbg_prefix = ""
+                buckets[acc_id] = {
+                    ns["name"]: ns for ns in acc_namespaces[acc_id].values() if self._is_bucket(ns["name"])
+                }
+                # Update cache of namespaces with this account
+                self.oceanstor_buckets[acc_id] = buckets[acc_id]
+
+        self.log.debug("%sBuckets in OceanStor: %s", dbg_prefix, ", ".join(buckets))
+
+        return buckets
+
     def list_filesystems(self, device=None, pool=None, update=False):
         """
         List filesystems in OceanStor owned by our account
         - Filesystems are namespaces in OceanStor
-        - Select all namespaces in our account and assume they are filesystems
+        - Select all namespaces in our account that are not buckets
         - Use namespaces API because interface at file_service/file_systems does not allow to filter by account
 
         @type device: list of filesystem names (if string: 1 filesystem, if None or all: all known ones)

@@ -436,6 +436,16 @@ class StorageTest(TestCase):
         self.assertEqual(O.list_active_accounts(), accounts_reference)
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_validate_accounts(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+        accounts_reference = ["0", "0000000001", "0000000002"]
+        self.assertEqual(O._validate_accounts(None), accounts_reference)
+        self.assertEqual(O._validate_accounts("all"), accounts_reference)
+        self.assertEqual(O._validate_accounts("test"), ["0000000001"])
+        self.assertEqual(O._validate_accounts(["test","oceanstor_account"]), ["0000000001", "0000000002"])
+        self.assertEqual(O._validate_accounts(["test","oceanstor_account", "nonexistent"]), ["0000000001", "0000000002"])
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_storage_pools(self):
         O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
         storagepools_reference = {
@@ -529,6 +539,49 @@ class StorageTest(TestCase):
         self.assertEqual(O._is_bucket("test"), False)
         self.assertEqual(O._is_bucket("object"), True)
         self.assertRaises(oceanstor.OceanStorOperationError, O._is_bucket, "nonexistent")
+
+    @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
+    def test_list_buckets(self):
+        O = oceanstor.OceanStorOperations(*FAKE_INIT_PARAMS)
+
+        ns_ref_main = {
+            "0000000002": {},
+        }
+        self.assertEqual(O.list_buckets(account="oceanstor_account"), ns_ref_main)
+        self.assertEqual(O.list_buckets(account="oceanstor_account", pool="StoragePool0"), ns_ref_main)
+
+        ns_ref_test = {
+            "0000000001": {
+                "object": {
+                    "id": 20,
+                    "name": "object",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000001",
+                }
+            },
+        }
+        self.assertEqual(O.list_buckets(account="test"), ns_ref_test)
+        self.assertEqual(O.list_buckets(account="test", pool="StoragePool0"), ns_ref_test)
+
+        ns_ref_full = {"0": {}}
+        ns_ref_full.update(ns_ref_main)
+        ns_ref_full.update(ns_ref_test)
+        self.assertEqual(O.list_buckets(), ns_ref_full)
+        self.assertEqual(O.list_buckets(pool="StoragePool0"), ns_ref_full)
+
+        ns_outdated = {
+            "0000000002": {
+                "outdated": {
+                    "id": 00,
+                    "name": "outdated",
+                    "storage_pool_id": 0,
+                    "account_id": "0000000002",
+                },
+            },
+        }
+        O.oceanstor_buckets = ns_outdated
+        self.assertEqual(O.list_buckets(), ns_outdated)
+        self.assertEqual(O.list_buckets(update=True), ns_ref_full)
 
     @mock.patch("vsc.filesystem.oceanstor.OceanStorRestClient", rest_client)
     def test_list_filesystems(self):
