@@ -298,6 +298,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         self.oceanstor_storagepools = {}
         self.oceanstor_namespaces = {}
+        self.oceanstor_account_namespaces = {}
         self.oceanstor_buckets = {}
         self.oceanstor_filesystems = {}
         self.oceanstor_filesets = {}
@@ -454,6 +455,14 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type account: list of owner account names (if string: 1 storage pool; if None or all: all known ones)
 
         Set self.oceanstor_namespaces as dict with
+        : keys per namespaceName and value is dict with
+        :: selected keys from OceanStor:
+        - id
+        - name
+        - storage_pool_id
+        - account_id
+
+        Set self.oceanstor_account_namespaces as dict with
         : keys per accountName and value is dict with
         :: keys per namespaceName and value is dict with
         ::: selected keys from OceanStor:
@@ -470,10 +479,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         namespaces = {}
         for acc_id in filter_acc:
-            if not update and acc_id in self.oceanstor_namespaces:
+            if not update and acc_id in self.oceanstor_account_namespaces:
                 # Use cached namespace data
                 dbg_prefix = "(cached) "
-                namespaces[acc_id] = self.oceanstor_namespaces[acc_id]
+                namespaces[acc_id] = self.oceanstor_account_namespaces[acc_id]
             else:
                 # Request namespace data
                 dbg_prefix = ""
@@ -482,10 +491,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 filter_json = json.dumps(filter_json, separators=OCEANSTOR_JSON_SEP)
                 _, response = self.session.api.v2.converged_service.namespaces.get(filter=filter_json)
                 # Save selection of attributes for this namespace
-                namespaces[acc_id] = {ns["name"]: {attr: ns[attr] for attr in ns_attrs} for ns in response["data"]}
+                account_namespaces = {ns["name"]: {attr: ns[attr] for attr in ns_attrs} for ns in response["data"]}
+                namespaces[acc_id] = account_namespaces
 
-                # Update cache of namespaces with this account
-                self.oceanstor_namespaces[acc_id] = namespaces[acc_id]
+                # Update caches of namespaces with this account
+                self.oceanstor_account_namespaces[acc_id] = namespaces[acc_id]
+                self.oceanstor_namespaces.update(account_namespaces)
 
         # Filter on storage pools
         # Support special case 'all' for downstream compatibility
@@ -514,11 +525,10 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @raise OceanStorOperationError: if there is no namespace with the given name
         """
-        oceanstor_namespaces = self.list_namespaces()
-        account = [acc for acc in oceanstor_namespaces if namespace in oceanstor_namespaces[acc]]
+        self.list_namespaces()
 
         try:
-            return oceanstor_namespaces[account[0]][namespace]
+            return self.oceanstor_namespaces[namespace]
         except (KeyError, IndexError):
             errmsg = f"OceanStor has no information for namespace {namespace}"
             self.log.raiseException(errmsg, OceanStorOperationError)
@@ -530,11 +540,11 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         @returns: boolean corresponding to the bucket attribute. None if undetermined due to permissions.
         """
-        oceanstor_namespaces = self.list_namespaces()
-        known_namespaces = [namespace for acc in oceanstor_namespaces for namespace in oceanstor_namespaces[acc]]
+        self.list_namespaces()
 
-        if namespace not in known_namespaces:
-            self.log.raiseException(f"OceanStor has no information for namespace: {namespace}", OceanStorOperationError)
+        if namespace not in self.oceanstor_namespaces:
+            errmsg = f"OceanStor has no information for namespace: {namespace}"
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
         query_params = {
             "name": namespace,

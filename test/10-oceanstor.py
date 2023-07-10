@@ -517,7 +517,7 @@ class StorageTest(TestCase):
                 },
             },
         }
-        O.oceanstor_namespaces = ns_outdated
+        O.oceanstor_account_namespaces = ns_outdated
         self.assertEqual(O.list_namespaces(), ns_outdated)
         self.assertEqual(O.list_namespaces(update=True), ns_ref_full)
 
