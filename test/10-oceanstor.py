@@ -23,7 +23,7 @@
 # along with vsc-filesystem-oceanstor.  If not, see <http://www.gnu.org/licenses/>.
 #
 """
-Tests for the oceanstor library.
+Tests for the VSC OceanStor API.
 
 @author: Alex Domingo (Vrije Universiteit Brussel)
 """
@@ -261,6 +261,12 @@ API_RESPONSE = {
             "description": "",
         },
     },
+    "dfv.service.obsOSC.supportAPI.get": {
+        "data": {
+            "supportAPI": "COMPATIBLE",
+        },
+        "result": 0,
+    },
 }
 
 
@@ -362,6 +368,7 @@ def api_response_namespace_snapshots_side_effect(filter=None, *args, **kwargs):
 def api_response_bucket_exists_side_effect(body, **kwargs):
     """
     Mock POST responses of dfv/service/obsOSC/bucket_exists depending on body
+    note: mocked interface "dfv.service.obsOSC.supportAPI" is always active, as if object API was enabled
     """
     response = {"data": {}}
 
@@ -378,6 +385,7 @@ def api_response_bucket_exists_side_effect(body, **kwargs):
     except IndexError:
         return (1, response)
 
+    # Permission to access object API is always granted in mocks
     # Namespaces with ID < 20 are not buckets
     if int(namespace_id) < 20:
         is_bucket = False
@@ -402,6 +410,7 @@ class StorageTest(TestCase):
     session.api.v2.file_service.snapshots.delete.return_value = (0, API_RESPONSE["file_service.snapshots.delete"])
     session.api.v2.converged_service.snapshots.post.return_value = (0, API_RESPONSE["converged_service.snapshots.post"])
     session.api.v2.converged_service.snapshots.delete.return_value = (0, API_RESPONSE["converged_service.snapshots.delete"])
+    session.dfv.service.obsOSC.supportAPI.get.return_value = (0, API_RESPONSE["dfv.service.obsOSC.supportAPI.get"])
     # queries with variable outcome depending on filter arguments
     session.api.v2.get.side_effect = api_response_get_side_effect
     session.api.v2.account.accounts.get.side_effect = api_response_account_side_effect

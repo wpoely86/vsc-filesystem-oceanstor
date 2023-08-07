@@ -326,6 +326,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
 
         # Account details
         self.account = self.get_account_info(account)
+        self.objapi_access = self._check_account_objapi_access()
 
     def get_account_info(self, account_name):
         """
@@ -370,6 +371,27 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         valid_accounts = [acc[1] for acc in active_accounts if acc[0] in accounts]
 
         return valid_accounts
+
+    def _check_account_objapi_access(self):
+        """
+        Check if account has permissions to access the object API in OceanStor
+
+        @returns: boolean (True: can access object API)
+        """
+        try:
+            self.session.dfv.service.obsOSC.supportAPI.get()
+        except RuntimeError as err:
+            errmsg = getattr(err, "message", str(err))
+            if "1077949058" in errmsg:
+                # No permissions to access object API
+                # a warning will be printed, return False and continue
+                objapi_access = False
+            else:
+                self.log.raiseException(errmsg, OceanStorOperationError)
+        else:
+            objapi_access = True
+
+        return objapi_access
 
     def list_storage_pools(self, update=False):
         """
@@ -550,20 +572,17 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             "name": namespace,
         }
 
+        if not self.objapi_access:
+            # No permissions to determine bucket attribute of namespaces
+            return None
+
         try:
             _, result = self.session.dfv.service.obsOSC.bucket_exists.post(body=query_params)
         except RuntimeError as err:
             errmsg = getattr(err, "message", str(err))
-            if "1077949058" in errmsg:
-                # No permissions to determine bucket attribute of this namespace
-                # a warning will be printed, return None and continue
-                is_bucket = None
-            else:
-                self.log.raiseException(errmsg, OceanStorOperationError)
-        else:
-            is_bucket = result["data"]["bucket_exists"]
+            self.log.raiseException(errmsg, OceanStorOperationError)
 
-        return is_bucket
+        return result["data"]["bucket_exists"]
 
     def list_buckets(self, pool=None, account=None, update=False):
         """
@@ -631,8 +650,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             # Update filesystems from namespaces data
             dbg_prefix = ""
             acc_namespaces = self.list_namespaces(pool=pool, account=self.account["name"], update=update)
-            # Select filesystems from namespace list. In case of not enough permissions to check bucket attribute,
-            # assume the namespace is a filesystem
+            # Select filesystems from namespace list
+            # note: in case of not enough permissions to check bucket attribute, assume namespace is a filesystem
             acc_filesystem_names = [ns for ns in acc_namespaces[self.account["id"]] if not self._is_bucket(ns)]
             acc_filesystems = {fs: acc_namespaces[self.account["id"]][fs] for fs in acc_filesystem_names}
             self.oceanstor_filesystems = acc_filesystems
