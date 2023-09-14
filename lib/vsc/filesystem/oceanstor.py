@@ -787,10 +787,9 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
                 # query dtrees in this filesystem
                 _, response = self.session.api.v2.file_service.dtrees.get(file_system_name=fs_name)
                 fs_dtree = {dt["id"]: dt for dt in response["data"]}
-                # query parent directory of each individual fileset by ID (fsId@dtreeId)
+                # query each individual fileset by ID (fsId@dtreeId) to get its parent directory
                 for dt_id in fs_dtree:
-                    dtree_api_path = os.path.join("file_service", "dtrees", dt_id)
-                    _, dt_response = self.session.api.v2.get(url=dtree_api_path)
+                    _, dt_response = self.session.api.v2.file_service.dtrees.get(id=dt_id)
                     fs_dtree[dt_id]["parent_dir"] = dt_response["data"]["parent_dir"]
 
                 dtree_filesets[fs_name] = fs_dtree
