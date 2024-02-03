@@ -1,5 +1,5 @@
 #
-# Copyright 2022-2023 Vrije Universiteit Brussel
+# Copyright 2022-2024 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
 # originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),
@@ -27,8 +27,6 @@ Tests for the VSC OceanStor API.
 
 @author: Alex Domingo (Vrije Universiteit Brussel)
 """
-from __future__ import print_function
-
 import json
 import mock
 import vsc.filesystem.oceanstor as oceanstor
@@ -284,7 +282,7 @@ def api_response_get_side_effect(url=None, *args):
     return (0, response)
 
 
-def api_response_dtree_side_effect(file_system_name=None, *args):
+def api_response_dtree_side_effect(file_system_name=None, *args, **kwargs):
     """
     Mock GET responses of file_service/drees depending on the filesystem name
     """

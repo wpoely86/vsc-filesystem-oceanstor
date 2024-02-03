@@ -1,5 +1,5 @@
 #
-# Copyright 2022-2023 Vrije Universiteit Brussel
+# Copyright 2022-2024 Vrije Universiteit Brussel
 #
 # This file is part of vsc-filesystem-oceanstor,
 # originally created by the HPC team of Vrije Universiteit Brussel (https://hpc.vub.be),
@@ -27,10 +27,6 @@ Interface for Huawei Pacific OceanStor
 
 @author: Alex Domingo (Vrije Universiteit Brussel)
 """
-
-from __future__ import print_function
-from future.utils import with_metaclass
-
 import json
 import os
 import re
@@ -144,7 +140,7 @@ class OceanStorClient(Client):
 
     def __init__(self, *args, **kwargs):
         """Wrapper for Client.__init__() allowing to disable SSL certificate verification"""
-        super(OceanStorClient, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # X-Auth-Token header
         self.x_auth_header = None
@@ -167,7 +163,7 @@ class OceanStorClient(Client):
         """
         # GET query without pagination
         if pagination is False:
-            return super(OceanStorClient, self).get(url, headers=headers, **params)
+            return super().get(url, headers=headers, **params)
 
         # GET query with pagination
         query_range = {
@@ -182,7 +178,7 @@ class OceanStorClient(Client):
         while page_items == query_range["limit"]:
             # loop over pages
             params["range"] = json.dumps(query_range, separators=OCEANSTOR_JSON_SEP)
-            item_status, item_response = super(OceanStorClient, self).get(url, headers=headers, **params)
+            item_status, item_response = super().get(url, headers=headers, **params)
 
             # append page
             status = item_status
@@ -209,7 +205,7 @@ class OceanStorClient(Client):
 
         # Execute request catching any HTTPerror
         try:
-            status, response = super(OceanStorClient, self).request(method, url, body, headers, content_type)
+            status, response = super().request(method, url, body, headers, content_type)
         except HTTPError as err:
             errmsg = f"OceanStor query failed with HTTP error: {err.reason} ({err.code})"
             fancylogger.getLogger().error(errmsg)
@@ -281,7 +277,7 @@ class OceanStorOperationError(PosixOperationError):
     pass
 
 
-class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
+class OceanStorOperations(PosixOperations,metaclass=Singleton):
     def __init__(self, url, account, username, password):
         """
         Initialize REST client and request authentication token
@@ -291,7 +287,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type username: string with username for the REST API
         @type password: string with plain password for the REST API
         """
-        super(OceanStorOperations, self).__init__()
+        super().__init__()
 
         self.supportedfilesystems = ["nfs", "nfs4"]
         self.ignorerealpathmismatch = True  # allow working through symlinks
@@ -1081,7 +1077,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         Identify local NFS filesystems from OceanStor
         Set filesystem name in OceanStor as attribute of local filesystems
         """
-        super(OceanStorOperations, self)._local_filesystems()
+        super()._local_filesystems()
 
         if self.oceanstor_filesystems is None:
             self.list_filesystems()
@@ -1322,17 +1318,12 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         else:
             if ostor_dtree_name[1:3] == VO_INFIX:
                 block_hard = vsc_fileset_storage.quota_vo
-                inode_hard = vsc_fileset_storage.quota_vo_inode
             else:
                 block_hard = vsc_fileset_storage.quota_user
-                inode_hard = vsc_fileset_storage.quota_user_inode
 
             block_hard *= 1024  # convert from kB to bytes
             block_soft = int(block_hard // OCEANSTOR_QUOTA_FACTOR)
-            inode_soft = int(inode_hard // OCEANSTOR_QUOTA_FACTOR)
-            self.set_user_quota(
-                block_soft, "*", obj=dtree_fullpath, hard=block_hard, inode_soft=inode_soft, inode_hard=inode_hard
-            )
+            self.set_user_quota(block_soft, "*", obj=dtree_fullpath, hard=block_hard)
 
             grace_time = DEFAULT_GRACE_DAYS * 24 * 3600
             self.set_user_grace(dtree_fullpath, grace=grace_time, who="*")
@@ -1651,7 +1642,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_hard: integer with hard limit on files.
         """
         # convert UIDs to usernames
         username = str(user)
@@ -1670,7 +1661,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type obj: string with local path
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_hard: integer with hard limit on files.
         """
         # convert GID to group names
         groupname = str(group)
@@ -1689,7 +1680,7 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type fileset_name: IGNORED (fileset_name is determined from fileset_path)
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_hard: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
         """
 
         fileset_path = self._sanity_check(fileset_path)
@@ -1698,12 +1689,19 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
             self.log.info(infomsg, fileset_name, fileset_path)
             fileset_name = None
 
+        if inode_soft is None:
+            # Always set the inode limits of new quotas, OceanStor default is too big for the AP
+            inode_soft = int(DEFAULT_INODE_MAX // OCEANSTOR_QUOTA_FACTOR)
+
         quota_limits = {"soft": soft, "hard": hard, "inode_soft": inode_soft, "inode_hard": inode_hard}
         self._set_quota(who=fileset_name, obj=fileset_path, typ="fileset", **quota_limits)
 
         # TODO: remove once OceanStor supports creating user quotas on non-empty filesets
         # User quotas in VOs are temporarily frozen to 100% of VO fileset quota
         if "brussel/vo" in fileset_path:
+            # at user level we don't set any inode quota
+            quota_limits["inode_soft"] = None
+            quota_limits["inode_hard"] = None
             # Update default user quota in this VO to 100% of fileset quota
             self._set_quota(who="*", obj=fileset_path, typ="user", **quota_limits)
 
@@ -1767,10 +1765,6 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type typ: string with type of quota: fileset, user or group
         @type who: identifier (username for user quota, group name for group quota, ignored for fileset quota)
         """
-        if "inode_soft" not in kwargs or kwargs["inode_soft"] is None:
-            # Always set the inode limits of new quotas, OceanStor default is too big for the AP
-            kwargs["inode_soft"] = int(DEFAULT_INODE_MAX // OCEANSTOR_QUOTA_FACTOR)
-
         query_params = self._parse_quota_limits(**kwargs)
 
         # Type of parent object
@@ -1831,9 +1825,8 @@ class OceanStorOperations(with_metaclass(Singleton, PosixOperations)):
         @type soft: integer with soft limit in bytes.
         @type hard: integer with hard limit in bytes. If None, OCEANSTOR_QUOTA_FACTOR * soft.
         @type inode_soft: integer with soft limit on files.
-        @type inode_soft: integer with hard limit on files. If None, OCEANSTOR_QUOTA_FACTOR * inode_soft.
+        @type inode_hard: integer with hard limit on files.
         """
-
         if soft is None and inode_soft is None:
             errmsg = "setQuota: At least one type of quota (block or inode) should be specified"
             self.log.raiseException(errmsg, OceanStorOperationError)
